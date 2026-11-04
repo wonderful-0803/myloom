@@ -9,7 +9,7 @@ const policy = require('../policy.cjs')
 const directories = []
 afterEach(() => { for (const folder of directories.splice(0)) fs.rmSync(folder, { recursive: true, force: true }) })
 function fixture(initial = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-desktop-')); directories.push(root)
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'loom-desktop-'))); directories.push(root)
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'dsh-superagent' }))
   for (const name of ['scripts/personal-superagent', 'scripts/dsh-superagent', 'lib/index.js', 'loom/dist/client/index.html']) {
     fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.writeFileSync(path.join(root, name), '')

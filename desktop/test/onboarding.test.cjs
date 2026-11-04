@@ -61,7 +61,7 @@ test('an engine selected by the native picker survives reopening, including spac
   assert.throws(() => item.setup.selectProject(path.join(item.root, 'missing')), /构建/)
   await item.setup.action('prepare')
   assert.throws(() => item.setup.selectProject(chosen), /准备环境前/)
-  assert.ok(item.calls.some(call => call.args.includes('link:' + chosen)))
+  assert.ok(item.calls.some(call => call.args.includes('link:' + fs.realpathSync(chosen))))
 })
 test('prepares an independent home, verifies actual API contracts, keeps secrets out of views and argv, and starts only on reviewed consent', async () => {
   const item = fixture(); await ready(item)
