@@ -1,22 +1,43 @@
-# Loom Linux 桌面端
+# Loom 桌面端
 
-当前为 **Linux x64 本机版**：独立 Electron 应用、托盘、连接状态及首次配置向导。可接入已有 Superagent / DeepSeek Harness，也可在已有本机引擎和依赖上从零配置独立的助手，不启动演示执行器。已有助手的任务库和账户凭据不自动复制。
+提供 **Linux x64 本机版**和 **macOS arm64／x64 内测版**：独立 Electron 应用、托盘、连接状态及首次配置向导。可接入已有 Superagent / DeepSeek Harness，也可在已有本机引擎和依赖上从零配置独立的助手，不启动演示执行器。已有助手的任务库和账户凭据不自动复制。macOS 原生构建、签名和空白首次启动检查的实际结果另记联调记录，不将打包完成等同于完整飞书与模型联调。
+
+## macOS 压缩包（0.3.0）
+
+- Apple M 系列芯片：`Loom-0.3.0-macos-arm64.zip`。
+- Intel 处理器：`Loom-0.3.0-macos-x64.zip`。
+
+解压后将 `Loom.app` 拖到“应用程序”，再打开。当前 Electron 45.2.2 产物的最低版本为 macOS 13.0，也可核对包内说明及 `.zip.json`。ZIP 有独立 SHA256 校验文件，包含 `.app`、使用说明和许可证，不包含模型、个人账户、任务库或开发机路径。应用使用本地 ad-hoc 签名供内测，未完成 Apple Developer ID 签名与公证；如果系统拦截，在“系统设置 → 隐私与安全性”核实来源后选择“仍要打开”，不要关闭系统整体安全保护。
+
+Mac 首次使用仍须先准备 Node、DeepSeek Harness、Python 3、tmux、飞书 CLI 及已构建的本仓库办公引擎，依赖安装见 [个人部署](PERSONAL_SETUP.md)。在向导第一步点击“选择办公引擎目录”，选择完成 `pnpm build:loom` 和 `pnpm build` 的源码目录，再检查环境并配置自己的模型及机器人。引擎目录选择经原生窗口和后端验证，保存后可恢复；环境准备后禁止换引擎，避免中途改用其他程序。Mac 助手记录存于 `~/Library/Application Support/luxi-loom/`，向导偏好在 `~/Library/Application Support/luxi-loom-first-run/`；已保存的路径及 XDG 覆盖继续生效。
+
+Mac 入口补齐 Finder 的 Homebrew／用户命令路径、菜单栏模板图标、Dock 重开和 Cmd+Q；只在 Linux 传入 X11 启动参数。关闭客户端不转移本机计算，退出与明确停止助手的语义沿用现有实现。Windows、跨设备任务迁移、完整新机器自动装依赖和签名更新仍未实现。
+
+在 macOS 原生构建：
+
+```sh
+pnpm --dir desktop install --frozen-lockfile
+pnpm --dir desktop build:macos arm64
+# Intel Mac 使用 x64
+```
+
+`scripts/package-macos.cjs` 使用固定版本 Electron 和 Packager，从显式文件清单暂存客户端，生成 ICNS／菜单栏图标，再验证二进制架构和本地签名，通过系统 `ditto` 制作保留应用元数据的 ZIP。脚本在非 macOS 环境拒绝运行，避免省略签名及原生验证。仓库工作流在独立 arm64、Intel macOS runner 上构建，权限仅 `contents: read`，只上传 ZIP、校验及空白首次启动证据；不注入个人配置、不启动 Harness／机器人、不调用付费模型。完整业务联调仍须在目标 Mac 配置后验收。
 
 ## 从零配置独立助手（0.2.0）
 
 打开新增的 **Loom · 独立助手** 应用／桌面快捷方式，或在原客户端连接页选择“从零配置一个独立助手”。独立入口使用 `--setup-experience`，有单独的桌面偏好、单实例锁和窗口类别；原客户端可以继续打开原任务库。
 
-1. **本机环境**：检查现有办公引擎、Node、dsh、Python、tmux 和飞书 CLI，点击“准备运行环境”创建全新的 Harness home/profile，并加载本地 bundle。此时不启动监听器，也不导入任何模型、飞书或邮件凭据。
+1. **本机环境**：选择现有办公引擎目录，检查 Node、dsh、Python、tmux 和飞书 CLI，点击“准备运行环境”创建全新的 Harness home/profile，并加载本地 bundle。此时不启动监听器，也不导入任何模型、飞书或邮件凭据。
 2. **模型**：填写兼容 API 地址、模型 ID 和 API Key；实际向所填地址发送一条固定的短连接测试，可能产生少量 API 费用，不包含个人资料。不把 HTTP 连通等同于复杂工具调用或任务质量验收。
 3. **飞书**：本机填写 App ID／Secret，校验租户凭证、机器人身份以及 bot-only CLI。Secret 通过独立的 CLI file SecretRef 使用，不调用会覆盖共享 app-ID keychain 的 `config init`。飞书应用创建、机器人能力、长连接消息订阅、权限发布及企业审批仍须在平台完成；向导说明这些前置步骤，不伪造已开通状态。
 4. **消息范围**：选择本应用下的本人 Open ID，可从机器人已加入群的成员中选择；私聊默认开、群默认不选，最多 3 个群，可区分仅 @／全部消息。仅一个所有者可发起任务，其他群关闭；自主模式默认 observe，可明确选择 auto。所有者是本机用户在配置页确认的身份，不是新增的飞书用户 OAuth 登录。
 5. **检查并启动**：展示模型、机器人、唯一用户、群范围、设备执行权限与交付方式；勾选确认后才初始化全新任务库并启动。复核凭据与群成员关系、检查旧监听及跨配置 bot lease；同一机器人已在原助手运行、或原监听状态无法核实时拒绝启动，不替用户停止旧任务。需要复用同一机器人时，先在原客户端明确停止助手，再返回重试。启动后等待实际消息消费者 ready，未就绪不标记完成。
 
-每次体验的本机记录在 `~/.config/luxi-loom-first-run/`，助手在 `${XDG_DATA_HOME:-~/.local/share}/luxi-loom/instances/<id>/` 中拥有独立 profile、state 和 CLI 配置，后续打开同一入口会恢复进度或进入已配置的工作空间。模型凭据采用 Harness 的 `.credentials.yaml`，飞书 Secret 使用本机专用文件，目录 0700、凭据文件 0600；不宣称这些文件由操作系统钥匙串加密。界面和任务记录不包含密钥；Loom 工作空间仍没有原生 IPC。邮箱、Codex 历史和自动邮件授权不在新配置中默认继承。
+Linux 上每次体验的本机记录在 `~/.config/luxi-loom-first-run/`，助手在 `${XDG_DATA_HOME:-~/.local/share}/luxi-loom/instances/<id>/` 中拥有独立 profile、state 和 CLI 配置，后续打开同一入口会恢复进度或进入已配置的工作空间。模型凭据采用 Harness 的 `.credentials.yaml`，飞书 Secret 使用本机专用文件，目录 0700、凭据文件 0600；不宣称这些文件由操作系统钥匙串加密。界面和任务记录不包含密钥；Loom 工作空间仍没有原生 IPC。邮箱、Codex 历史和自动邮件授权不在新配置中默认继承。
 
 `src/personal-setup.ts` 和固定本机脚本为新目录保存真实的版本化办公设置；拒绝覆盖已有任务库，同一份初始化可重试。`desktop/onboarding.cjs` 负责步骤校验、受限外部校验与独立环境启动。服务脚本同时向已有 tmux 传入独立 Harness home 和 Agent 配置目录，防止沿用服务端原有环境。
 
-此向导已补齐**当前 Linux 上配置一个新助手**的真实流程；安装包仍未捆绑完整办公引擎及 Harness/CLI 依赖，也没有全新电脑的一键安装或飞书应用免审批流程。缺少依赖时显示缺项，不把配置页当作完整新机器部署已经完成。
+此向导已补齐**当前 Linux 上配置一个新助手**的真实流程，Mac 的原生空白首次启动与完整账户联调另行验收。安装包仍未捆绑完整办公引擎及 Harness/CLI 依赖，也没有全新电脑的一键安装或飞书应用免审批流程。缺少依赖时显示缺项，不把配置页当作完整新机器部署已经完成。
 
 ## 使用
 
@@ -57,6 +78,6 @@ pnpm desktop:install
 
 实际窗口自检另外需要系统已有的 `xwininfo` 和 `xprop`，按本应用的原生窗口 ID 核验 PID 与 `IsViewable`，覆盖托盘菜单回调重开、隐藏后再次启动及最小化后再次启动。仅检查 `isVisible()` 或渲染截图不足以证明用户真的看得到窗口。
 
-后续新机器引导、跨平台安装、签名更新和跨设备接入需要单独补齐；本轮仍是单人、本机范围。参考 [Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security) 和 [WebContentsView](https://www.electronjs.org/docs/latest/api/web-contents-view)。
+后续新机器依赖安装、其他系统、Developer ID／公证、签名更新和跨设备接入需要单独补齐；本轮仍是单人、本机范围。参考 [Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security) 和 [WebContentsView](https://www.electronjs.org/docs/latest/api/web-contents-view)。
 
 首次配置另有 `desktop/test/onboarding.test.cjs`、`tests/personal-setup.spec.ts` 与服务脚本测试。可选 `node desktop/test/integration-runtime.cjs` 实际创建、初始化、启动并停止独立 Harness，外部飞书／模型使用替身；`LOOM_DESKTOP_SETUP_SMOKE_DIR=<受限目录>` 配合 `--setup-experience` 验证真实原生窗口、五步表单、密码清理、群名称按文本显示及最终确认。UI 中的云端校验同样使用明确标注的测试替身，不等于新应用真实权限或真实付费模型验收。

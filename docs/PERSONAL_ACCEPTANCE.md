@@ -252,7 +252,9 @@ Worker 的 ready 工具可用 artifact_file 明确登记自身目录的 .md／.t
 
 安装后对原运行时重新做完整桌面回归：实际加载、沙箱、无特权工作空间、托盘恢复、隐藏／最小化后再次启动均通过。原模型仍为 `dashscope/deepseek-v4.1-flash-1017`，原 4 个任务与 5 份产物仍可见；证据为 `.artifacts/desktop-onboarding-existing-runtime/acceptance.json`。本次仅更新和重开桌面程序，没有重启原后台；验收期间原后台 PID 为 `2802394`。
 
-生成并安装 `desktop/dist/Loom-0.2.0-linux-x64.tar.gz`，SHA256 为 `487d4232acc6e06ec5b11c4f4231d3b1f7556dd32d95edfe964fc8897050d546`；新增“Loom · 独立助手”入口，使用独立桌面偏好及 `loom-setup` 窗口类别。最终打开原客户端和空白首次配置窗口，未代填真实凭据，等待本人在本机体验。新机器依赖一键安装、飞书扫码建应用与真实新应用授权闭环仍未验收。
+生成并安装 `desktop/dist/Loom-0.2.0-linux-x64.tar.gz`；新增“Loom · 独立助手”入口，使用独立桌面偏好，并以 Electron `setDesktopName` 匹配 `luxi-loom-setup` 窗口类别，避免与原客户端混淆。包哈希及最终实际窗口记录见 `.artifacts/desktop-first-run-final.json`。最终打开原客户端和空白首次配置窗口，未代填真实凭据，等待本人在本机体验。新机器依赖一键安装、飞书扫码建应用与真实新应用授权闭环仍未验收。
+
+用户随后已在实际首次配置窗口自行完成环境、真实模型连接和机器人身份校验，当前停在消息范围步骤，尚未保存范围或启动新监听。没有读取或打印输入的凭据。最终修订确认 Electron 二进制相同后，仅以原子替换更新桌面代码资源，保留正在操作的窗口、输入及进度；新的窗口类别在下次启动生效，未为此重启用户配置窗口。最终包与已安装代码一致，哈希为 `68bd555d5d3024a28b8cc8a25d63d67e93e68da4f725b4920902468b93e76855`。最终包五步表单验收见 `.artifacts/desktop-first-run-final-package/acceptance.json`，原后台仍为 `2802394`、runtime／feishu 均 ready；原应用的权限范围、新配置真实长连接及新消息任务闭环仍须由后续操作分别验收。
 
 这是已有 Linux x64 个人助手的本机接入版，不是全新设备免配置安装器。Harness、CLI 和个人 profile 尚未随包部署；自动依赖安装、飞书扫码接入、模型配置向导、开机自启、签名更新、其他系统和手机均待后续。使用与边界见 [DESKTOP.md](DESKTOP.md)。
 
@@ -305,3 +307,15 @@ Worker 的 ready 工具可用 artifact_file 明确登记自身目录的 .md／.t
 用户随后明确要求取消账号密码，以便领导查看效果。将同一 HTTPS 地址改为 `loom-view` 免登录只读隧道，删除活动策略的 Basic Auth，增加非 GET／HEAD 方法及 Codex 原始历史／项目会话选项的拒绝规则，保留路径和 Origin 限制。原密码策略仅为不再加载的历史本机文件；本机入口及执行服务不变。
 
 真实公网请求未携带 Authorization 或认证 Cookie：页面、两份 JS／CSS 资源、四任务快照、任务进展和报告正文均返回 200，无 WWW-Authenticate；POST／PUT／PATCH／DELETE 返回 403，Codex 历史及选项返回 403，其他管理 API 与 Harness API 返回 404，外站 Origin 返回 403。写方法探针使用不存在的只读测试路径和空 JSON，不提交实际操作。证据 `.artifacts/ngrok-loom/public-view-acceptance.json` 仅保存 URL、计数和状态码。这个链接展示当前工作空间的真实可读内容，不具有访问者身份隔离；只是用户授权的临时展示，关闭 tmux 会话即可撤销。
+
+## macOS 桌面压缩包 0.3.0（2026-11-04）
+
+按用户要求制作 Mac ZIP。桌面启动扩展至 darwin；Finder 环境补齐固定 Homebrew／用户命令位置，不运行用户 shell 启动文件；Mac 使用 Application Support 保存新助手。加入菜单栏模板图标，独立配置只在 Linux 传入 X11 参数。首次向导新增原生办公引擎选择：要求已构建、持久保存规范路径，准备后冻结选择，保留原来源／账户隔离和明确启动确认。
+
+打包使用 Electron 45.2.2、Packager 20.3.0 和显式客户端输入清单，不复制源码目录的凭据、node_modules、历史或机器默认路径。macOS 原生打包脚本为每个架构生成 `.app`、ICNS、说明、许可证、ZIP 及 SHA256／JSON，执行系统 codesign 本地签名和深度严格校验，读取实际二进制架构与最低系统版本。这里的 ad-hoc 签名不是 Developer ID，也没有 Apple 公证。
+
+实际 [macOS 构建运行 41813346537](https://github.com/wonderful-0803/myloom/actions/runs/41813346537) 在 `macos-15` arm64 和 `macos-15-intel` x64 上均成功。两端各通过 17 项桌面测试、架构核对、严格签名验证和打包后的真实 Electron 进程启动。空白首次配置验证本机原生窗口句柄、表单无凭据、引擎选择入口、工作空间空白及无 Node／preload 的隔离设置，并保存窗口截图。检查未启动 Harness、飞书消费者或办公任务，也没有模型请求。两份产物原生 Info.plist 最低系统均为 13.0。
+
+初轮 Mac CI 发现 setup-node 的自动 pnpm 缓存先于 pnpm 安装，以及测试夹具把 `/var` 与 `/private/var` 当作不同目录；修正安装顺序及真实路径断言后，以上最终运行全部通过。Linux 本地 17 项桌面测试、23 项架构文档／服务脚本测试与 Linux 打包通过；对打包后的 0.3.0 运行独立偏好目录的实际窗口自检，验证任务导航、工作空间无原生权限、单实例、最小化／隐藏重开、托盘回调及后台继续在线，未重启既有服务。日志及本机证据为 `.artifacts/macos-desktop-tests-final.log`、`.artifacts/macos-docs-service-tests.log`、`.artifacts/macos-linux-regression-smoke/acceptance.json`；Mac 原生截图和报告随对应 CI artifact 保存。
+
+Mac 完整账户配置、真实模型工具调用、飞书收发及长期后台运行尚未在用户的目标 Mac 联调，不能由空白原生启动推定完成。完整办公引擎及 Harness／CLI 依赖不包含在客户端 ZIP 中，仍须先准备；不自动导入开发者或其他设备的账号与任务，也未实现设备迁移、云端执行、自动升级和 Developer ID／公证发行。

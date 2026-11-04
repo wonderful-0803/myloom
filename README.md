@@ -17,7 +17,7 @@ The implementation supports Feishu-only setup, office summaries, exact CSV aggre
 ## Setup
 
 The supplied Loom UI is available as a local personal workspace backed by this same Runtime. Build and access instructions: [Loom integration](docs/LOOM_SETUP.md).
-The Linux desktop client connects to that same personal runtime, with an independent window, tray and local connection guide. Build and installation: [Loom Desktop](docs/DESKTOP.md).
+The Linux and macOS desktop clients connect to that same personal runtime, with an independent window, tray and local connection guide. macOS ZIPs are internal builds with local signatures; Developer ID signing and notarization remain separate. Build, verification status and installation: [Loom Desktop](docs/DESKTOP.md).
 Its first-run wizard can also prepare an independent assistant using the existing local engine: model verification, bot credentials, owner/chat scope and explicit startup. It does not import the existing assistant's credentials or history, and checks for duplicate bot listeners. Installing all dependencies on a fresh machine remains separate.
 
 Setup has many steps, so an agent does it with you. Ask your coding agent:
