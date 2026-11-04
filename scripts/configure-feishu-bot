@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Configure the personal bot from a hidden terminal prompt; never print CLI credential output."""
+import argparse
+import getpass
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+
+def configure(cli, app_id, directory, brand, secret):
+    if not re.fullmatch(r'cli_[A-Za-z0-9]+', app_id):
+        raise ValueError('Invalid Feishu app ID.')
+    # `config show` returns a mask, not a reusable secret. Reject it before any write.
+    if len(secret) < 16 or len(set(secret)) == 1 or any(c.isspace() for c in secret):
+        raise ValueError('Enter the real App Secret from the developer console, not a mask.')
+    directory = Path(directory).expanduser().resolve()
+    if directory == (Path.home() / '.lark-cli').resolve():
+        raise ValueError('Use a dedicated bot configuration directory.')
+    existing = directory / 'config.json'
+    if existing.exists():
+        apps = json.loads(existing.read_text()).get('apps', [])
+        if any(app.get('users') or app.get('appId') != app_id for app in apps):
+            raise ValueError('Refusing to replace another app or a user login configuration.')
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    env = {**os.environ, 'LARKSUITE_CLI_CONFIG_DIR': str(directory),
+           'LARKSUITE_CLI_NO_UPDATE_NOTIFIER': '1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER': '1'}
+
+    def run(args, stdin=None):
+        result = subprocess.run([cli, *args], input=stdin, capture_output=True, text=True, env=env, timeout=60)
+        if result.returncode:
+            # config init may echo credentials; raw CLI output must never escape this process.
+            raise ValueError('Bot configuration failed (CLI exit %d). Check the App ID, Secret and connection.' % result.returncode)
+        return result.stdout
+
+    run(['config', 'init', '--app-id', app_id, '--brand', brand, '--app-secret-stdin'], secret + '\n')
+    run(['config', 'strict-mode', 'bot', '--global'])
+    status = json.loads(run(['auth', 'status', '--json', '--verify']))
+    identities = status.get('identities', {})
+    if not identities.get('bot', {}).get('verified') or identities.get('user', {}).get('available'):
+        raise ValueError('Bot verification failed or the dedicated configuration allows a user identity.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--app-id', required=True)
+    parser.add_argument('--brand', choices=['feishu', 'lark'], default='feishu')
+    parser.add_argument('--config-dir', default=str(Path.home() / '.lark-cli-dsh-superagent'))
+    args = parser.parse_args()
+    cli = shutil.which('lark-cli')
+    if not cli:
+        parser.error('lark-cli is not on PATH.')
+    if not sys.stdin.isatty():
+        parser.error('Run this command in your own terminal; the Secret must be entered without echo.')
+    print('Enter the App Secret locally. It will not be displayed or saved in this repository.')
+    print('The CLI stores the App Secret by app ID; using the same app also restores its existing local credential.')
+    secret = getpass.getpass('App Secret: ')
+    configure(cli, args.app_id, args.config_dir, args.brand, secret)
+    print('Bot credential verified; dedicated configuration is restricted to the bot identity.')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        print('Configuration did not complete. Check the App ID/Secret and connection, then retry.', file=sys.stderr)
+        sys.exit(1)
+    except (EOFError, KeyboardInterrupt):
+        print('\nConfiguration cancelled.', file=sys.stderr)
+        sys.exit(130)

@@ -1,0 +1,21 @@
+{
+  "scopes": {
+    "tenant": [
+      "im:chat:read",
+      "im:message:readonly",
+      "im:message.group_msg",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:message:send_as_bot",
+      "im:message:update",
+      "im:resource",
+      "docx:document:readonly",
+      "drive:drive:readonly",
+      "drive:drive.metadata:readonly",
+      "wiki:wiki:readonly",
+      "sheets:spreadsheet:readonly",
+      "bitable:app:readonly"
+    ],
+    "user": []
+  }
+}

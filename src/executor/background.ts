@@ -163,3 +163,20 @@ export async function stopBackground(ctx: Context, sessionId: string, reason: st
   if (agent) await stopSubagents(ctx, agent, keepInbox).catch((error: unknown) => { failures.push(error) })
   if (failures.length) throw new AggregateError(failures, `Stopping the background work of ${sessionId} failed`)
 }
+
+/** Confirm actual quiescence for a human handover, including jobs left by released descendants; timeouts are not success. */
+export async function confirmStopped(ctx: Context, sessionId: string): Promise<void> {
+  const sessions = [sessionId], seen = new Set(sessions), subagents = subagentsOf(ctx)
+  for (let index = 0; index < sessions.length && subagents; index++) {
+    for (const child of await subagents.listChildren(sessions[index]!)) {
+      if (seen.has(child.id)) continue
+      if (seen.size >= 1024) throw new Error('Cannot confirm all descendant work has stopped')
+      seen.add(child.id); sessions.push(child.id)
+    }
+  }
+  // A descendant's agent may have been released while its shell job was still stopping.
+  await Promise.all(sessions.slice(1).map(id => killJobs(ctx, id, 'Human task handover')))
+  if (sessions.some(id => runningJobs(ctx, id).length)) throw new Error('Managed shell jobs are still running')
+  if (ctx.agents.get(sessionId as SessionId)?.status === 'running'
+    || sessions.slice(1).some(id => ctx.agents.get(id as SessionId))) throw new Error('Managed agents have not stopped')
+}

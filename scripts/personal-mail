@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Private, owner-bound 163 SMTP bridge. Configure in your own terminal; never paste the authorization code into chat."""
+import argparse
+import getpass
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import smtplib
+import ssl
+import stat
+import sys
+import tempfile
+import uuid
+from datetime import datetime, timezone
+from email.message import EmailMessage
+from email.utils import formatdate
+from html import escape
+
+
+def config_path():
+    return Path(os.environ.get('SUPERAGENT_MAIL_CONFIG', str(Path.home() / '.config/superagent/163-mail.json'))).absolute()
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def private_directory(path):
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.is_symlink() or path.stat().st_uid != os.getuid() or stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise ValueError('Use a private directory owned by the current OS user.')
+
+
+def write_private(path, value):
+    private_directory(path.parent)
+    fd, temporary = tempfile.mkstemp(prefix='.mail-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(value, stream, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        sync_directory(path.parent)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def load_config(path):
+    # Do not follow symlinks or accept a credential file readable by other users.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise ValueError('Credential file must be private and owned by the current OS user.')
+        value = json.load(stream)
+    if not re.fullmatch(r'[A-Za-z0-9_.+-]+@163\.com', value.get('address', ''), re.I):
+        raise ValueError('A personal @163.com mailbox is required.')
+    if not re.fullmatch(r'ou_[A-Za-z0-9]+', value.get('owner', '')) or not re.fullmatch(r'cli_[A-Za-z0-9]+', value.get('appId', '')):
+        raise ValueError('The mail account must be bound to a Feishu owner and app.')
+    if not re.fullmatch(r'[a-f0-9]{32}', value.get('accountId', '')) or not value.get('authorizationCode') or not value.get('verifiedAt'):
+        raise ValueError('Configure and verify the SMTP account first.')
+    return value
+
+
+def smtp_login(config):
+    server = smtplib.SMTP_SSL('smtp.163.com', 465, timeout=20, context=ssl.create_default_context())
+    try:
+        server.login(config['address'], config['authorizationCode'])
+    except Exception:
+        server.close()
+        raise
+    return server
+
+
+def configure(path, address, owner, app_id, authorization_code):
+    if not re.fullmatch(r'[A-Za-z0-9_.+-]+@163\.com', address, re.I):
+        raise ValueError('Enter your personal @163.com address.')
+    if not re.fullmatch(r'ou_[A-Za-z0-9]+', owner) or not re.fullmatch(r'cli_[A-Za-z0-9]+', app_id):
+        raise ValueError('An actual Feishu owner and app are required.')
+    if not authorization_code or authorization_code.strip() != authorization_code or any(c.isspace() for c in authorization_code) or '*' in authorization_code:
+        raise ValueError('Enter the SMTP client authorization code, without spaces or masks.')
+    private_directory(path.parent)
+    if path.exists() or path.is_symlink():
+        old = load_config(path)
+        if old['owner'] != owner or old['appId'] != app_id:
+            raise ValueError('Refusing to replace a different owner or app.')
+    value = {'provider': '163', 'address': address.lower(), 'owner': owner, 'appId': app_id,
+             'authorizationCode': authorization_code, 'accountId': uuid.uuid4().hex, 'verifiedAt': now()}
+    # Authenticate before replacing the old configuration. No test message is sent.
+    server = smtp_login(value)
+    server.close()
+    write_private(path, value)
+    return identity(value)
+
+
+def identity(config):
+    return {key: config[key] for key in ['provider', 'address', 'owner', 'appId', 'accountId', 'verifiedAt']}
+
+
+def relative_request(name):
+    path = Path(name)
+    if path.is_absolute() or not path.resolve().is_relative_to(Path.cwd().resolve()):
+        raise ValueError('The request must be a relative file inside the working directory.')
+    if path.stat().st_size > 2_000_000:
+        raise ValueError('Mail request is too large.')
+    return json.loads(path.read_text())
+
+
+def record_path(path, message_id):
+    if not re.fullmatch(r'<superagent\.[a-f0-9]{32}@163\.com>', message_id):
+        raise ValueError('Invalid managed message ID.')
+    directory = path.parent / 'send-records'
+    private_directory(directory)
+    return directory / (hashlib.sha256(message_id.encode()).hexdigest() + '.json')
+
+
+def check_account(config, request):
+    if any(request.get(key) != config[key] for key in ['owner', 'appId', 'accountId']):
+        raise ValueError('The configured mail identity changed; preview again.')
+
+
+def status(path, config, request):
+    check_account(config, request)
+    file = record_path(path, request['messageId'])
+    if not file.exists():
+        return {'status': 'unknown', 'message_id': request['messageId']}
+    record = json.loads(file.read_text())
+    return {'status': record['status'], 'message_id': request['messageId']}
+
+
+def send(path, config, request, confirmed):
+    if not confirmed:
+        raise ValueError('An explicit reviewed-send confirmation is required.')
+    check_account(config, request)
+    if request.get('to') != config['address']:
+        raise ValueError('This bridge sends only to its configured owner mailbox.')
+    subject, body = request.get('subject'), request.get('body')
+    if not isinstance(subject, str) or not subject or len(subject) > 100 or any(c in subject for c in '\r\n\x00'):
+        raise ValueError('Invalid mail subject.')
+    if not isinstance(body, str) or len(body.encode()) > 1_000_000:
+        raise ValueError('Invalid report body.')
+    attachment = request.get('attachment')
+    if attachment is not None:
+        if not isinstance(attachment, dict):
+            raise ValueError('Invalid report attachment.')
+        filename, content = attachment.get('filename'), attachment.get('content')
+        if (not isinstance(filename, str) or not re.fullmatch(r'[\w. -]{1,120}\.(?:txt|md)', filename, re.UNICODE | re.IGNORECASE)
+                or filename.startswith('.') or not isinstance(content, str) or len(content) > 40_000
+                or hashlib.sha256(content.encode()).hexdigest() != attachment.get('sha256')):
+            raise ValueError('Invalid fixed report attachment.')
+    file = record_path(path, request['messageId'])
+    try:
+        fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        return status(path, config, request)
+    record = {'status': 'unknown', 'messageId': request['messageId'], 'at': now()}
+    with os.fdopen(fd, 'w') as stream:
+        json.dump(record, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    sync_directory(file.parent)
+    message = EmailMessage()
+    message['From'] = config['address']
+    message['To'] = config['address']
+    message['Subject'] = subject
+    message['Message-ID'] = request['messageId']
+    message['Date'] = formatdate(localtime=False)
+    message.set_content(body)
+    message.add_alternative('<p>' + escape(body).replace('\n', '<br>') + '</p>', subtype='html')
+    if attachment is not None:
+        message.add_attachment(attachment['content'].encode('utf-8'), maintype='text', subtype='plain', filename=attachment['filename'])
+    server = smtp_login(config)
+    try:
+        refused = server.send_message(message, from_addr=config['address'], to_addrs=[config['address']])
+        if refused:
+            raise ValueError('SMTP did not accept the sole recipient.')
+        # Persist acceptance before stdout. A lost process response must not cause another send.
+        write_private(file, {**record, 'status': 'submitted', 'acceptedAt': now()})
+    finally:
+        server.close()
+    return {'status': 'submitted', 'message_id': request['messageId']}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='command', required=True)
+    setup = sub.add_parser('configure', help='Verify SMTP credentials entered locally without sending a message.')
+    setup.add_argument('--owner', required=True)
+    setup.add_argument('--app-id', required=True)
+    sub.add_parser('identity', help='Return public metadata only; no mailbox content or secret.')
+    for name in ['send', 'status']:
+        command = sub.add_parser(name)
+        command.add_argument('--request', required=True)
+        if name == 'send':
+            command.add_argument('--confirm-send', action='store_true')
+    args = parser.parse_args()
+    path = config_path()
+    if args.command == 'configure':
+        if not sys.stdin.isatty():
+            raise ValueError('Run configure in your own terminal; the authorization code must not enter chat.')
+        address = input('Your 163 mailbox address: ').strip()
+        code = getpass.getpass('163 SMTP client authorization code (hidden): ')
+        configure(path, address, args.owner, args.app_id, code)
+        print('163 SMTP authentication verified and saved locally. No mail was sent.')
+        return
+    config = load_config(path)
+    if args.command == 'identity':
+        server = smtp_login(config)
+        server.close()
+        result = identity(config)
+    else:
+        result = send(path, config, relative_request(args.request), args.confirm_send) if args.command == 'send' else status(path, config, relative_request(args.request))
+    print(json.dumps({'ok': True, 'data': result}, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (EOFError, KeyboardInterrupt):
+        print('Mail configuration cancelled.', file=sys.stderr)
+        sys.exit(130)
+    except Exception:
+        # SMTP servers may include credentials or private message data in diagnostics. Never echo raw errors.
+        print(json.dumps({'ok': False, 'error': {'message': '163 mail operation failed. Check local configuration, authorization code and actual mailbox before retrying.'}}), file=sys.stderr)
+        sys.exit(1)

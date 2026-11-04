@@ -1,0 +1,5 @@
+#!/bin/sh
+# Keep the personal runtime's sessions, provider settings and credentials separate.
+set -eu
+export DSH_HOME="${DSH_PERSONAL_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/superagent/dsh}"
+exec "$(dirname "$0")/dsh-superagent" "$@"

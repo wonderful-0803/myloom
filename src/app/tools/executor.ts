@@ -8,6 +8,9 @@ import { readResource, type ResourceHost } from '../resources.ts'
 import type { Store } from '../store.ts'
 import { reportRelay, threadFollowedNotice } from '../notices.ts'
 import type { Sessions } from '../sessions.ts'
+import type { TaskControls } from '../task-control.ts'
+import type { Artifacts } from '../artifacts.ts'
+import type { ResultDelivery } from '../result-delivery.ts'
 import { AcknowledgementSchema, readTool, tool, type Tool } from './tool.ts'
 
 export interface ExecutorToolsHost {
@@ -15,6 +18,9 @@ export interface ExecutorToolsHost {
   readonly store: Pick<Store, 'tickets' | 'replyStatus' | 'atomic'>
   readonly sessions: Pick<Sessions, 'relay' | 'notify'>
   readonly resources: ResourceHost
+  readonly controls?: TaskControls
+  readonly artifacts?: Artifacts
+  readonly resultDelivery?: ResultDelivery
   /** GitHub Source context whose pull-request rules govern claiming a reported PR. */
   readonly github: SourceContext
   sendReplies(): Promise<void>
@@ -22,9 +28,17 @@ export interface ExecutorToolsHost {
 
 export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
   const ticketId = ticket.id
-  return [
+  const codex = ticket.mandate.actor.source === 'codex-daily'
+  const tools = [
+    tool({ name: 'orchestrator_artifact', description: 'Read this ticket’s saved artifact version, body and provenance.',
+      schema: z.object({ version: z.number().int().positive().optional() }).strict(),
+      execute: async args => host.artifacts?.get(ticketId, ticket.mandate.actor.id, args.version) ?? { saved: false } }),
     readTool('Read one page of a resource of this ticket that the resource parameter lists. Follow next_offset, and next_resource where a page names one.',
-      true, (resource, offset, limit, signal) => readResource(host.resources, resource, offset, limit, ticketId, signal)),
+      true, (resource, offset, limit, signal) => {
+        if (codex && ![`trigger/${ticket.origin.triggerId}`, `ticket/${ticketId}`, `ticket/${ticketId}/assignment`].includes(resource)) throw new Error('Codex 日报仅可读取本任务的来源快照和任务说明。')
+        if (codex && (host.controls?.held(ticketId) || !host.artifacts?.canReadContext(host.store.tickets.get(ticketId)!, ticket.mandate.actor.id))) throw new Error('Codex 来源授权已变化。')
+        return readResource(host.resources, resource, offset, limit, ticketId, signal)
+      }),
     tool({
       name: 'orchestrator_ack',
       description: 'Acknowledge one original human request before substantial work, as the replies section says; it posts as a reply to that message.',
@@ -77,23 +91,36 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       schema: z.object({
         state: z.enum(['progress', 'ready', 'blocked', 'failed', 'dropped']),
         summary: z.string().min(1),
-        human_action: z.string().trim().min(1).max(1000).nullish().describe('One concrete question for a person, also with state=progress; omit to keep the pending one, null to clear it.'),
-        question_for_trigger_id: z.string().optional().describe('With human_action: the human message that raised the question, which is asked where that person wrote.'),
-        pr_number: z.number().int().positive().nullish().describe(`The ticket's PR: its source PR, or one by ${host.github.deployment.github.login} from a branch named after this ticket (DSH_SUPERAGENT_NAME).`),
-        reply_to_trigger_id: z.string().optional().describe('The explicit human question this report answers; never for ordinary progress.'),
+        artifact_version: z.number().int().nonnegative().optional().describe('Read orchestrator_artifact; required after human edits.'),
+        artifact_file: z.string().min(1).max(240).optional().describe('Ready: relative .md/.txt report, saved for delivery.'),
+        human_action: z.string().trim().min(1).max(1000).nullish().describe('Question for a person (also in progress); omit to keep pending, null to clear.'),
+        question_for_trigger_id: z.string().optional().describe('With human_action: ask where this human message was written.'),
+        pr_number: z.number().int().positive().nullish().describe('Only when GitHub is configured: the source PR, or an agent-owned PR from this ticket branch (DSH_SUPERAGENT_NAME). Omit for office work.'),
+        reply_to_trigger_id: z.string().optional().describe('Human question answered; not for ordinary progress.'),
       }).strict(),
       execute: async (args, signal) => {
         const current = host.store.tickets.get(ticketId)
         if (!current || !liveTicket(current)) throw new Error('Ticket ended (PR was closed or work finished); do not resume it')
+        if (args.pr_number != null && !host.github.deployment.github) throw new Error('The GitHub Source has no working agent CLI')
         const pull = args.pr_number != null ? await readPull(host.github, args.pr_number, signal) : undefined
+        if (host.controls?.held(ticketId)) throw new Error('Task paused or under human control')
+        if (codex && args.artifact_file) throw new Error('Codex 日报请通过 summary 提交完整正文，不读取工作区文件。')
+        if (args.artifact_file && args.state !== 'ready') throw new Error('Only a ready report can publish artifact_file')
+        const file = args.artifact_file ? host.artifacts?.readReportFile(current, args.artifact_file) : undefined
+        if (args.artifact_file && !file) throw new Error('Report file publication is unavailable')
         // Claim the PR, record the report, and queue the relay atomically so a rejected PR claim or invalid report leaves no partial state, and a recorded report always reaches the main Session.
         return host.store.atomic(() => {
           const refused = pull && claimPull(host.github, ticketId, pull)
           if (refused) throw new Error(refused)
+          if (args.state === 'ready' || args.state === 'progress') host.artifacts?.checkReport(current, args.artifact_version)
           const report = { state: args.state, summary: args.summary, ...(args.human_action !== undefined ? { question: args.human_action } : {}),
             ...(args.question_for_trigger_id ? { askedBy: args.question_for_trigger_id } : {}),
             ...(args.reply_to_trigger_id ? { answers: args.reply_to_trigger_id } : {}) }
           const updated = host.engine.report(ticketId, report)
+          if (args.state === 'ready' || args.state === 'progress') {
+            const artifact = host.artifacts?.report(updated, file?.body ?? args.summary, args.artifact_version, file?.filename ?? (codex ? `codex-daily-${String((host.resources.store.triggers.get(ticket.origin.triggerId)?.meta.date) ?? 'report')}.md` : undefined))
+            if (artifact && args.state === 'ready') host.resultDelivery?.enqueue(updated, artifact)
+          }
           const relay = reportRelay(updated, report)
           if (relay) host.sessions.relay(relay.id, relay.text)
           const notification = relay ? 'orchestrator' : 'internal_only'
@@ -102,4 +129,5 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
       },
     }),
   ]
+  return codex ? tools.filter(tool => ['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report'].includes(tool.name)) : tools
 }

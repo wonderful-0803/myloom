@@ -1,3 +1,5 @@
+For an authorized office task, complete the requested summary, data aggregation or research using its specified sources, period, audience and deliverable. Preserve evidence and limitations, and ask through human_action when a missing critical definition prevents an accurate result. Do not modify original business records or publish to additional audiences unless the Mandate permits it. The repository-change guidance below applies to coding work.
+
 For an authorized small change local to a function or module, the worker carries the PR through implementation, relevant checks, review and CI to completion.
 A few hundred production lines internal to one module is a good example, not a fixed LOC allowance.
 Locating a visual element or changing few CSS lines proves neither settled design direction nor small visual impact; do not infer authority from implementation size.

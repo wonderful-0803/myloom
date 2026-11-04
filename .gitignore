@@ -3,3 +3,7 @@ lib/
 .artifacts/
 .env
 coverage/
+loom/dist/
+loom/loom.db*
+desktop/dist/
+desktop/assets/*.png

@@ -2,6 +2,7 @@
  * Runtime settings schemas, assessment validation, and policy gate evaluation.
  * Who may originate work is configured per Source in that Source's own identities; the Policy never maps a person across Sources.
  */
+import { CodexDailySchema, codexScopeKey } from './codex-delegation.ts'
 import { LIMITS } from './limits.ts'
 import { z } from 'zod'
 import { ADMISSION_DEFAULTS, type Admission, type AdmissionCell, type AdmissionRow } from './admission.ts'
@@ -34,17 +35,18 @@ export interface Assessment {
 /**
  * Validate an assessment against enabled rules and convert it into an engine `AssessmentOutcome`.
  * Acceptance requires a settled direction, at least one matched enabled rule, and `intent_evidence`, and accepts an
- * inferred candidate only in `auto` mode (otherwise recording it as `would_accept`).
+ * inferred candidate only under an automatic matched rule (global auto or a scoped standing delegation).
  * @throws when `rule_assessments` does not cover every enabled rule exactly once, or an accept omits `intent_evidence`.
  */
-export function assessmentOutcome(assessment: Assessment, settings: Pick<Settings, 'policy' | 'eval'>, strength: Strength): AssessmentOutcome {
+export function assessmentOutcome(assessment: Assessment, settings: Pick<Settings, 'policy' | 'eval'>, strength: Strength, triggers: readonly Trigger[] = []): AssessmentOutcome {
   const enabled = settings.policy.rules.filter(rule => rule.enabled)
   const judged = assessment.rule_assessments
   const ids = new Set(judged.map(item => item.rule_id))
   if (judged.length !== enabled.length || ids.size !== judged.length || enabled.some(rule => !ids.has(rule.id))) {
     throw new Error('Exactly one assessment for every enabled rule is required; disabled, unknown or missing rule IDs are not allowed')
   }
-  const matches = judged.filter(item => item.matched).map(({ rule_id, reason }) => ({ rule_id, reason }))
+  const matches = judged.filter(item => item.matched && enabled.some(rule => rule.id === item.rule_id && (!rule.delegation || delegationMatches(rule, triggers))))
+    .map(({ rule_id, reason }) => ({ rule_id, reason }))
   const evidence = assessment.intent_evidence ? { intent_evidence: assessment.intent_evidence } : {}
   const audit = { matches, rule_assessments: judged, direction: assessment.direction, ...evidence }
   if (assessment.decision !== 'accept') return { kind: assessment.decision, reason: assessment.reason, audit }
@@ -52,21 +54,46 @@ export function assessmentOutcome(assessment: Assessment, settings: Pick<Setting
   if (!matches.length) return { kind: 'ignore', audit, reason: { code: 'noRuleMatched' } }
   if (!assessment.intent_evidence) throw new Error('Acceptance requires intent_evidence')
   const { title, scope, worktree_name: name } = assessment
-  if (strength === 'inferred' && settings.eval.mode !== 'auto') {
+  const automatic = matches.filter(match => {
+    const rule = enabled.find(rule => rule.id === match.rule_id)!
+    return rule.delegation ? rule.delegation.mode === 'auto' : settings.eval.mode === 'auto'
+  })
+  if (strength === 'inferred' && !automatic.length) {
     const proposal = { title, scope, worktree_name: name }
     return { kind: 'ignore', audit: { ...audit, would_accept: true, proposal }, reason: { code: 'observed', values: { text: assessment.reason } } }
   }
   return { kind: 'accept', title, scope, reason: assessment.reason, ...(assessment.acknowledgement ? { acknowledgement: assessment.acknowledgement } : {}),
-    rules: matches.map(match => match.rule_id), audit, ...(name ? { name } : {}) }
+    rules: (strength === 'inferred' ? automatic : matches).map(match => match.rule_id), audit, ...(name ? { name } : {}) }
 }
 const DEFAULT_RULES = [
   { id: 'copy', name: 'Copy fixes', enabled: true, instruction: 'Explicit requests to correct a typo, wording, punctuation or existing translation. Preserve product promises and business meaning.' },
   { id: 'visual', name: 'Visual fixes', enabled: true, instruction: 'Explicit implementation requests for local spacing, alignment, overflow or styling, with a specified target or an objectively established existing standard/correct state to restore. Locating an element or calling it inconsistent, unattractive or hard to understand does not establish a target. Do not invent visual style, information hierarchy, rendering or interaction decisions. No redesign, new interaction or behavior. A known spacing defect does not authorize adjacent undefined restyling; assess only a clearly separable authorized scope. If direction or scope is unsettled, observe only: no acknowledgement, worker or unsolicited question.' },
 ]
-/** An assessment rule; its instruction may also specify PR reviewers and whether to wait for their approval. */
+export const StandingDelegationSchema = z.object({
+  owner: z.string().regex(/^ou_[a-zA-Z0-9]+$/),
+  chatIds: z.array(z.string().regex(/^oc_[a-zA-Z0-9]+$/)).max(3).refine(ids => new Set(ids).size === ids.length, 'Duplicate chat IDs'),
+  keywords: z.array(z.string().trim().min(1).max(40)).max(12), mode: z.enum(['observe', 'auto']),
+  createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), since: z.iso.datetime(),
+  codex: CodexDailySchema.optional(),
+  requestId: z.uuid(), initialHash: z.string().regex(/^[a-f0-9]{32}$/),
+}).strict().refine(value => value.codex ? !value.chatIds.length && !value.keywords.length : value.chatIds.length > 0, '委托来源范围无效')
+export type StandingDelegation = z.infer<typeof StandingDelegationSchema>
+/** An assessment rule; optional standing delegation metadata narrows its owner, source, freshness and automation. */
 export const RuleSchema = z.object({ id: RuleIdSchema, name: z.string().trim().min(1).max(LIMITS.ruleName), enabled: z.boolean(),
-  instruction: z.string().trim().min(1).max(LIMITS.ruleInstruction) }).strict()
+  instruction: z.string().trim().min(1).max(LIMITS.ruleInstruction), delegation: StandingDelegationSchema.optional() }).strict()
 export type Rule = z.infer<typeof RuleSchema>
+/** A scoped standing instruction never admits another sender, a private chat, historical events or a different source. */
+export function delegationMatches(rule: Rule, triggers: readonly Trigger[]): boolean {
+  const delegation = rule.delegation
+  if (delegation?.codex) return !!triggers.length && triggers.every(trigger => !trigger.human && trigger.source === 'codex-daily'
+    && trigger.actor.source === 'codex-daily' && trigger.actor.id === delegation.owner && trigger.id === trigger.meta.runId
+    && trigger.meta.delegationId === rule.id && trigger.meta.owner === delegation.owner
+    && trigger.meta.scopeKey === codexScopeKey(delegation.codex!) && trigger.meta.snapshotKey === key('codex-daily-snapshot', trigger.text))
+  return !!delegation && !!triggers.length && triggers.every(trigger => trigger.human && trigger.source === 'feishu'
+    && trigger.actor.source === 'feishu' && trigger.actor.id === delegation.owner && trigger.meta.direct !== true
+    && delegation.chatIds.includes(String(trigger.meta.chatId)) && Date.parse(trigger.at) >= Date.parse(delegation.since)
+    && (!delegation.keywords.length || delegation.keywords.some(word => trigger.text.toLocaleLowerCase().includes(word.toLocaleLowerCase()))))
+}
 export const RoleModelSchema = z.object({ provider: z.string().trim().min(1), model: z.string().trim().min(1), reasoningEffort: z.string().trim().min(1).optional() }).strict()
 export type RoleModel = z.infer<typeof RoleModelSchema>
 
@@ -189,6 +216,12 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
   return {
     version, paused: settings.paused, evalTimeoutMs: settings.eval.timeoutSeconds * 1000,
     gate(trigger: Trigger, thread, tickets) {
+      if (trigger.source === 'codex-daily') {
+        const scope = sources.scope(trigger)
+        const rule = settings.policy.rules.find(rule => rule.enabled && rule.delegation?.codex && rule.delegation.mode === 'auto' && delegationMatches(rule, [trigger]))
+        return rule && scope.listened && scope.observed ? { admissible: true, strength: 'inferred', basis: { source: trigger.source, scope: trigger.meta,
+          via: 'admission', cell: 'unlistedUnaddressed', observation: { mode: 'auto' } } } : { admissible: false, reason: 'admission_ignored' }
+      }
       if (!trigger.human) return machineGate(trigger)
       const allowed = allowedSender(settings, trigger.actor)
       const scope = listened(sources, trigger.source, trigger.meta)
@@ -206,19 +239,33 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
       if (!(trigger.addressed === 'direct' && !allowed) && (allowed || mode !== 'off') && participating(thread, tickets)) {
         return { admissible: true, strength: allowed ? 'explicit' : 'inferred', basis: { ...recorded, via: 'followup' } }
       }
-      if (admission === 'inferred' && mode !== 'off') return { admissible: true, strength: 'inferred', basis: { ...basis, observation: { mode } } }
+      const standing = allowed && scope.listened && scope.observed && settings.policy.rules.some(rule => rule.enabled && delegationMatches(rule, [trigger]))
+      if (admission === 'inferred' && (mode !== 'off' || standing)) return { admissible: true, strength: 'inferred', basis: { ...basis, observation: { mode: mode === 'off' ? 'observe' : mode } } }
       return { admissible: false, reason: !allowed ? 'not_a_member' : receivable && admission === 'ignore' ? 'admission_ignored' : 'no_mention' }
     },
-    admitsInferred: rules => mode === 'auto' && rules.length > 0 && rules.every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id)),
+    admitsInferred: (rules, triggers = []) => rules.length > 0
+      && (!triggers.some(trigger => trigger.source === 'codex-daily') || rules.length === 1 && settings.policy.rules.some(rule => rule.id === rules[0] && rule.delegation?.codex && delegationMatches(rule, triggers)))
+      && rules.every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id
+      && (rule.delegation ? rule.delegation.mode === 'auto' && delegationMatches(rule, triggers) && triggers.every(trigger => {
+        const scope = sources.scope(trigger)
+        return (rule.delegation?.codex || !!allowedSender(settings, trigger.actor)) && scope.listened && scope.observed
+      }) : mode === 'auto'))),
     revalidate(mandate: Mandate) {
       // Revalidation rules follow docs/002 (Eval path; Resume revalidates).
       const { basis } = mandate
       const { source } = basis
       const current = source && basis.scope ? listened(sources, source, basis.scope) : undefined
       if (current && !current.listened) return false
-      const rulesOn = (rules: string[] | undefined) => (rules ?? []).every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id))
-      // Explicit follow-ups remain valid; inferred follow-ups require auto mode and enabled matched rules.
-      if (basis.via === 'followup') return mandate.strength === 'explicit' || (mode === 'auto' && rulesOn(basis.rules))
+      if (source === 'codex-daily') return mandate.strength === 'inferred' && mandate.actor.source === source && basis.rules?.length === 1
+        && !!current?.listened && current.observed && settings.policy.rules.some(rule => rule.enabled && rule.id === basis.rules?.[0]
+          && rule.delegation?.codex && rule.delegation.mode === 'auto' && rule.delegation.owner === mandate.actor.id
+          && basis.scope?.scopeKey === codexScopeKey(rule.delegation.codex))
+      const automated = (rules: string[] | undefined) => !rules?.length ? mode === 'auto' : rules.every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id
+        && (rule.delegation ? rule.delegation.mode === 'auto' && !!allowedSender(settings, mandate.actor) && mandate.actor.source === 'feishu'
+          && mandate.actor.id === rule.delegation.owner && current?.listened && current.observed && basis.scope?.direct !== true
+          && rule.delegation.chatIds.includes(String(basis.scope?.chatId)) : mode === 'auto')))
+      // Explicit follow-ups remain valid; inferred follow-ups require automatic, enabled matched rules.
+      if (basis.via === 'followup') return mandate.strength === 'explicit' || automated(basis.rules)
       // A bot's candidate holds only while the bot remains on its Source's bot list and passes the observation checks below.
       if (basis.via === 'bot' && !listedBot(settings, mandate.actor)) return false
       // An admission-table Mandate holds while the sender's current cell still grants at least the original strength.
@@ -234,8 +281,8 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
         if (STRENGTH[admission] < STRENGTH[mandate.strength]) return false
         if (mandate.strength === 'explicit') return true
       } else if (basis.via !== 'bot' && !allowedSender(settings, mandate.actor)) return false
-      // Observed/inferred Mandates hold only while auto mode is active and all matched rules remain enabled.
-      if ((basis.via === 'admission' || basis.via === 'listed' || basis.via === 'bot') && basis.observation) return mode === 'auto' && rulesOn(basis.rules)
+      // Inferred Mandates hold only while their automatic rules and source authorization remain valid.
+      if ((basis.via === 'admission' || basis.via === 'listed' || basis.via === 'bot') && basis.observation) return automated(basis.rules)
       return true
     },
   }

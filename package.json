@@ -4,7 +4,7 @@
   "license": "MIT",
   "version": "0.1.0",
   "private": true,
-  "description": "A proactive agent for one GitHub repository, as a DSH (DeepSeek Harness) bundle: it listens to GitHub and optionally Feishu, evaluates requests under a Policy, turns authorized ones into Tickets, and executes each in its own DSH Session.",
+  "description": "A DSH (DeepSeek Harness) assistant for personal office work and coding: it listens to Feishu and optionally GitHub, evaluates requests under a Policy, and executes each authorized Ticket in its own Session.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -21,6 +21,7 @@
   },
   "files": [
     "lib",
+    "loom/dist/client",
     "cordis.patch.yml",
     "locale/*.json",
     "README.md",
@@ -45,6 +46,12 @@
     "manifestVersion": 1
   },
   "scripts": {
+    "desktop:start": "pnpm --dir desktop start",
+    "desktop:test": "pnpm --dir desktop test",
+    "desktop:build": "pnpm --dir desktop build",
+    "desktop:install": "pnpm --dir desktop install:local",
+    "build:loom": "pnpm --dir loom build",
+    "check:loom": "pnpm --dir loom exec tsc --noEmit && pnpm --dir loom test && pnpm --dir loom build",
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

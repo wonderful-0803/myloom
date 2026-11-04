@@ -5,8 +5,10 @@ Use this guide to install, configure and operate dsh-superagent. It covers accou
 ## What runs
 
 - **A dedicated DeepSeek Harness profile**, called `superagent` in this guide. Create it from the Web profile template. It loads the bundle and serves its panel on `127.0.0.1`. Keep it separate from the profile you work in: the plugin changes process-wide `PATH` and git settings, and its process needs independent restarts and upgrades.
-- **An agent GitHub account.** The agent comments, pushes branches and opens pull requests as this account, through a GitHub CLI signed in only as that account.
-- **Optional:** a Feishu bot for chat requests.
+- **For an enabled GitHub Source, an agent GitHub account.** The agent comments, pushes branches and opens pull requests as this account, through a GitHub CLI signed in only as that account.
+- **A Feishu bot for chat requests.** It can be the only Source: explicitly disable GitHub in Sources settings to run without a repository or GitHub account. With GitHub disabled, setup requires a working bot; a missing or invalid bot stops startup. With GitHub enabled, a broken Feishu bot still leaves GitHub running.
+
+For a personal installation, [examples/personal.cordis.patch.yml](../examples/personal.cordis.patch.yml) enables the Feishu plugin, and [examples/personal.settings.json](../examples/personal.settings.json) supplies settings with GitHub disabled, a single owner, no member synchronization, bounded office rules and observe mode. Replace the bot CLI and owner ID before saving the corresponding blocks in the panel. Source switches and account fields require a restart and can be changed only through the management panel/API. Feishu-only worker shims refuse `gh`, and the isolated git configuration has a failing credential helper; this prevents ambient account fallback through these defaults, not access by arbitrary absolute paths.
 
 Plugin configuration holds the state directory and machine limits. Use the panel for everything else: Sources for the repository and accounts, Policy for allowed lists, and Execution for worker directories and commands.
 
@@ -21,8 +23,8 @@ Both presets run with `danger-full-access` as the operator's OS user and read me
 ## Prerequisites
 
 - Node.js 22.19+ or 24+, pnpm, git 2.32+, Python 3.8+ and tmux
-- GitHub CLI (`gh`) 2.48 or later. Source CLI fields must point to `gh` or `lark-cli` wrappers; the host relies on their subcommands and output formats.
-- A repository on github.com; GitHub Enterprise Server is not supported. To create a checkout per Ticket, keep a local clone from which the prepare command can add worktrees. Install `git-lfs` if that repository uses Git LFS.
+- For GitHub coding, GitHub CLI (`gh`) 2.48 or later. Source CLI fields must point to `gh` or `lark-cli` wrappers; the host relies on their subcommands and output formats.
+- For GitHub coding, a repository on github.com; GitHub Enterprise Server is not supported. To create a checkout per Ticket, keep a local clone from which the prepare command can add worktrees. Install `git-lfs` if that repository uses Git LFS. Feishu-only office work uses independent directories without a git prepare command.
 - A model provider configured for DeepSeek Harness. dsh-superagent uses the profile's default model unless the Eval or Execution settings name another.
 - For Feishu: `lark-cli` (tested with 1.0.90) and a Feishu or Lark app with a bot
 

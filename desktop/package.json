@@ -1,0 +1,18 @@
+{
+  "name": "luxi-loom-desktop",
+  "productName": "Loom",
+  "version": "0.2.0",
+  "description": "Loom — 陆兮个人助手桌面端",
+  "private": true,
+  "license": "MIT",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "node scripts/icon.cjs && electron --ozone-platform=x11 .",
+    "test": "node --test test/*.test.cjs",
+    "build": "node scripts/package.cjs",
+    "install:local": "node scripts/install.cjs"
+  },
+  "devDependencies": {
+    "electron": "45.2.2"
+  }
+}

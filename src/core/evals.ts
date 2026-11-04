@@ -149,7 +149,9 @@ export class Evals extends EnginePart {
     const thread = held ?? this.thread(trigger.threads[0]!)
     const evaluation = held?.evaluating ?? this.directEval(thread, trigger, outcome.kind, outcome.kind === 'stop' ? outcome.ticketId : undefined)
     // An inferred candidate is accepted only on enabled rules its assessment matched, while assessments may accept.
-    if (outcome.kind === 'accept' && evaluation.strength !== 'explicit' && !this.policy().admitsInferred(outcome.rules ?? [])) {
+    if (outcome.kind === 'accept' && evaluation.strength !== 'explicit' && !this.policy().admitsInferred(outcome.rules ?? [], evaluation.triggerIds.flatMap(id => {
+      const input = this.repo.triggers.get(id); return input ? [input] : []
+    }))) {
       throw new UserError('notExplicit')
     }
     return this.decideEval(thread, evaluation, outcome)

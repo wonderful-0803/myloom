@@ -1,0 +1,10 @@
+{
+  "name": "loom-sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/calc.test.js",
+    "start": "node src/cli.js"
+  }
+}

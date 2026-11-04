@@ -1,0 +1,11 @@
+# Enable the Feishu plugin in the existing dedicated superagent Web profile.
+# Replace stateDir and configure the Source and owner as docs/PERSONAL_SETUP.md describes.
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3082
+- id: dsh-superagent
+  config:
+    stateDir: <absolute path to the personal assistant state directory>
+- id: dsh-superagent-feishu
+  disabled: false

@@ -19,6 +19,8 @@ import { KV } from '../kv.ts'
  * Thrown by `Settings.save` and `Settings.sync` and translated into an HTTP 409 response by the management routes.
  */
 export class SettingsConflict extends Error {}
+/** Refuses agent-origin changes to standing authorizations that only the local owner may manage. */
+export class SettingsPermissionError extends Error {}
 const now = (): string => new Date().toISOString()
 /** Executor settings that control shell execution paths, prepare commands, and command shims. */
 const environment = ({ executor }: SettingsValue) => JSON.stringify([executor.directory, executor.prepare, executor.blockedCommands])
@@ -36,6 +38,12 @@ const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'source', Block> = {
       return { ...policy, sources: sources.validatePolicy(policy.sources) }
     },
     merge: (settings, value) => ({ ...settings, policy: value as SettingsValue['policy'] }),
+    guard: (current, candidate, origin) => {
+      const delegated = (settings: SettingsValue) => settings.policy.rules.filter(rule => rule.delegation || rule.id.startsWith('loom-delegate-'))
+      if (origin !== 'panel' && JSON.stringify(delegated(current)) !== JSON.stringify(delegated(candidate))) {
+        throw new SettingsPermissionError('持续委托只能由本机所有者创建、修改或启停。')
+      }
+    },
   },
   eval: { parse: value => EvalConfigSchema.parse(value), merge: (settings, value) => ({ ...settings, eval: value as SettingsValue['eval'] }) },
   executor: {
@@ -71,6 +79,8 @@ export interface SettingsHost {
   readonly setup: Pick<Setup, 'configured' | 'checkAccounts' | 'blockCommands' | 'restart'>
   /** Triggers an immediate pass so work newly allowed by a settings save runs right away. */
   requestPass(): void
+  /** Revalidate managed holds after any saved block, including source scope changes outside the policy hash. */
+  revalidateControls?(): void
 }
 
 /**
@@ -145,7 +155,7 @@ export class Settings {
    * @throws SettingsConflict when `block`'s revision changed before or during validation checks.
    * @throws UserError | z.ZodError when `block` is unknown, the source is not installed, `value` is invalid (such as an `executor` block carrying `paused`, which only `pause` sets), a non-panel `origin` changes panel-only fields, or a role-model or account check fails.
    */
-  async save(block: SettingsBlock, value: unknown, revision: number, origin: SettingsOrigin) {
+  async save(block: SettingsBlock, value: unknown, revision: number, origin: SettingsOrigin, recordRelated?: () => void) {
     const { store, sources, engine, sessions } = this.host
     const stale = () => revision !== store.blockRevision(block)
     if (stale()) throw new SettingsConflict('Settings changed. Reload before saving.')
@@ -181,8 +191,10 @@ export class Settings {
     const notified = [...effects.keys()]
     store.atomic(() => {
       store.saveSettings(SettingsSchema.parse(settings), { source: origin, block, policyVersion: after, policyChanged: before !== after, notified })
+      recordRelated?.()
       if (origin !== 'tool') sessions.notify(...settingsNotice(block, changedPaths(old, settings)))
       if (before !== after) engine.policyChanged(before, after, effects)
+      this.host.revalidateControls?.()
     })
     // Rewrite worker command shims immediately when `blockedCommands` changes.
     const blocked = settings.executor.blockedCommands

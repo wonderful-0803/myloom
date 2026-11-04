@@ -14,10 +14,11 @@ import type { Store } from '../app/store.ts'
 import { Later, type Effects } from '../app/effects.ts'
 import { executionRoot, type Variable } from '../app/execution-environment.ts'
 import type { Sessions } from '../app/sessions.ts'
+import type { TaskControls } from '../app/task-control.ts'
 import { WorktreeNameSchema } from '../app/assessment.ts'
 import { resultRelay } from '../app/notices.ts'
 import type { HealthEntry } from '../infra/health.ts'
-import { cancelled, collectJob, killJobs, runningJobs, stopBackground, stopSubagents, until, untilQuiet } from './background.ts'
+import { cancelled, collectJob, confirmStopped, killJobs, runningJobs, stopBackground, stopSubagents, until, untilQuiet } from './background.ts'
 
 const now = (): string => new Date().toISOString()
 /** Returns the worker session ID (`worker-<ticketId>`) for a ticket. */
@@ -69,6 +70,7 @@ export interface ExecutorHost {
   readonly health: HealthEntry
   readonly machine: Pick<Machine, 'stateDir'>
   readonly lifetime: AbortSignal
+  readonly controls?: TaskControls
   /** Session manager for worker sessions and for relaying worker reports to the main Session. */
   readonly sessions: Pick<Sessions, 'ensure' | 'prompt' | 'promptedId' | 'relay' | 'holds'>
   closing(): boolean
@@ -244,13 +246,13 @@ export class DshExecutor implements Executor {
    * A failed prepare command throws `PrepareFailed`, which is not retried automatically; an empty directory it left is removed, a non-empty one kept.
    * @throws PrepareFailed with the command's output when the prepare command fails.
    */
-  private async prepareDirectory(ticket: Ticket): Promise<void> {
+  private async prepareDirectory(ticket: Ticket, controlSignal?: AbortSignal): Promise<void> {
     const directory = ticket.execution?.directory ?? ''
     await mkdir(dirname(directory), { recursive: true })
-    const command = this.host.store.settings().executor.prepare.trim()
+    const command = ticket.mandate.actor.source === 'codex-daily' ? '' : this.host.store.settings().executor.prepare.trim()
     const env = Object.fromEntries(this.host.environment(ticket).map(variable => [variable.key, variable.value]))
     // Enforce a timeout so a hung prepare command (such as on a credential prompt) fails the ticket instead of holding a worker slot indefinitely.
-    const signal = AbortSignal.any([this.host.lifetime, AbortSignal.timeout(PREPARE_TIMEOUT_MS)])
+    const signal = AbortSignal.any([this.host.lifetime, AbortSignal.timeout(PREPARE_TIMEOUT_MS), ...controlSignal ? [controlSignal] : []])
     if (command) await runAsWorker(this.host.context.subprocess, ['sh', '-c', command], dirname(directory), signal, env)
       .catch(async (error: unknown) => {
         // Remove an empty directory left by a failed prepare command so a later retry does not treat it as already prepared.
@@ -268,6 +270,7 @@ export class DshExecutor implements Executor {
   deliver(ticket: Ticket, _assignment: Assignment): void { this.host.effects.enqueue('delivery', ticket.id, { ticketId: ticket.id }) }
   /** Launches a queued assignment unless its ticket ended or a newer assignment replaced it meanwhile. */
   private async launchQueued({ ticketId, assignmentId }: { ticketId: string; assignmentId: string }): Promise<void> {
+    if (this.host.controls?.held(ticketId)) throw new Later('Task is paused or under human control')
     const ticket = this.host.store.tickets.get(ticketId)
     const assignment = ticket && latestAssignment(ticket)
     if (!ticket || !liveTicket(ticket) || assignment?.id !== assignmentId || assignment.state !== 'pending') return
@@ -288,6 +291,7 @@ export class DshExecutor implements Executor {
    * stops immediately if the ticket ended or another assignment took over.
    */
   private async deliverQueued(ticketId: string): Promise<void> {
+    if (this.host.controls?.held(ticketId)) throw new Later('Task is paused or under human control')
     // A stop of the worker's background work ends with a cancel, which would drop what is delivered meanwhile.
     await this.stopped(ticketId)
     const first = this.host.store.tickets.get(ticketId)
@@ -333,6 +337,7 @@ export class DshExecutor implements Executor {
       if (!current || !liveTicket(current) || runningAssignment(current)?.id !== assignment.id) throw new Error('The ticket ended or another Assignment took it over')
       // A stop of the worker's background work that started meanwhile ends with a cancel, which would drop the Input.
       if (this.stopping.has(ticket.id)) throw new Later('The worker\'s background work is stopping')
+      if (this.host.controls?.held(ticket.id)) throw new Later('Task is paused or under human control')
     }
     live()
     const trigger = input.kind === 'trigger' ? await this.triggerCard(ticket, input.triggerId, input.note) : undefined
@@ -425,6 +430,7 @@ export class DshExecutor implements Executor {
     const current = () => {
       if (this.host.closing()) throw new Error('dsh-superagent is stopping')
       if (this.host.paused()) throw new Later('Processing is paused')
+      if (this.host.controls?.held(ticket.id)) throw new Later('Task is paused or under human control')
       const stored = this.host.store.tickets.get(ticket.id)
       return !!stored && liveTicket(stored) && latestAssignment(stored)?.id === assignment.id
     }
@@ -433,7 +439,8 @@ export class DshExecutor implements Executor {
     if (!current()) return
     // Prepare the workspace directory once; an existing directory counts as already prepared, including worktrees created before `prepare` commands existed.
     if (!await stat(workspace).then(() => true, () => false)) {
-      await this.prepareDirectory(ticket)
+      if (this.host.controls) await this.host.controls.run(ticket.id, 'prepare', signal => this.prepareDirectory(ticket, signal))
+      else await this.prepareDirectory(ticket)
       if (!current()) return
     }
     if (!current()) return
@@ -482,6 +489,7 @@ export class DshExecutor implements Executor {
       // The turn a stop of the worker's subagents woke and cancelled is no turn of the worker's.
       if (status !== 'idle' || cancelled.delete(agent) || this.host.closing()) return
       const ticket = this.ticketOf(agent)
+      if (ticket && this.host.controls?.held(ticket.id)) return
       const assignment = ticket && runningAssignment(ticket)
       if (ticket && assignment && liveTicket(ticket)) void this.background(this.workerIdle(ticket, assignment, agent))
     }))
@@ -504,6 +512,7 @@ export class DshExecutor implements Executor {
     }))
     this.disposers.push(ctx.on('agent/error', ({ agent, error }) => {
       const ticket = this.ticketOf(agent)
+      if (ticket && this.host.controls?.held(ticket.id)) return
       const assignment = ticket && runningAssignment(ticket)
       if (!ticket || !assignment || !liveTicket(ticket) || this.host.closing()) return
       if (this.retries(assignment.id, error)) { this.resumeAfter(ticket.id, assignment.id, error); return }
@@ -535,6 +544,25 @@ export class DshExecutor implements Executor {
       else if (latest?.state === 'pending' && !waitsForPerson(ticket)) this.start(ticket, latest)
     }
   }
+  /** Stop managed work and wait for native tools, background jobs and children before confirming handover. */
+  async quiesce(ticketId: string): Promise<void> {
+    this.settling.get(ticketId)?.abort()
+    const agent = this.host.context.agents.get(workerSessionId(ticketId) as SessionId)
+    agent?.cancel({ kind: 'user' }, { keepInbox: true })
+    this.stopWork(ticketId, 'Human paused or took over the task', true)
+    await this.stopped(ticketId)
+    await agent?.whenIdle()
+    await confirmStopped(this.host.context, workerSessionId(ticketId))
+  }
+  /** Explicit return only: restart the managed assignment and reread human edits before doing more work. */
+  resumeTask(ticketId: string): void {
+    const ticket = this.host.store.tickets.get(ticketId), assignment = ticket && runningAssignment(ticket)
+    if (!ticket || !liveTicket(ticket)) return
+    if (assignment) this.host.engine.assignmentInterrupted(ticketId, assignment.id, 'controlReturned')
+    const current = this.host.store.tickets.get(ticketId)
+    const pending = current && latestAssignment(current)
+    if (current && pending?.state === 'pending') this.start(current, pending)
+  }
   /** Runs background worker event handling and updates the `worker` health entry on failure or recovery. */
   private background(work: Promise<void>): Promise<void> {
     const { health } = this.host
@@ -561,7 +589,7 @@ export class DshExecutor implements Executor {
       const ticket = this.host.store.tickets.get(ticketId)
       if (!ticket || !liveTicket(ticket) || runningAssignment(ticket)?.id !== assignmentId) { this.resuming.delete(assignmentId); return }
       // Wait while processing is paused or no wake slot is free.
-      if (this.host.paused()) { this.after(SLOT_WAIT_MS, go); return }
+      if (this.host.paused() || this.host.controls?.held(ticketId)) { this.after(SLOT_WAIT_MS, go); return }
       const sessionId = workerSessionId(ticketId)
       const waking = !this.running(ticket)
       try { if (waking) this.slots.reserve(ticketId, 'wake') } catch (failure) {

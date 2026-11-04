@@ -23,6 +23,22 @@ beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'environment-')); mkdirSync(
 afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
 describe('worker shims', () => {
+  it('disables ambient GitHub access for Feishu-only installations and removes an earlier account helper', async () => {
+    const bot = program(join(dir, 'lark-bot'), 'echo bot "$@"')
+    await writeEnvironment(testDeployment({ stateDir: dir }), [])
+    const deployment = testDeployment({ stateDir: dir, repository: '', github: undefined, feishu: { ...testDeployment().feishu!, cli: bot } })
+    await writeEnvironment(deployment, ['personal-cli'])
+    const bin = workerBin(dir)
+    await expect(exec(join(bin, 'gh'), ['api', 'user'])).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('no GitHub account') })
+    await expect(exec(join(bin, 'personal-cli'), [])).rejects.toMatchObject({ code: 1, stderr: 'personal-cli is blocked in this installation.\n' })
+    expect((await exec(join(bin, 'lark-cli'), ['im'])).stdout).toBe('bot im\n')
+    const env = { PATH: process.env.PATH, HOME: dir, ...agentVariables(dir) }
+    expect((await exec('git', ['config', '--get-all', 'credential.https://github.com.helper'], { cwd: dir, env })).stdout.trim()).toBe('!exit 1')
+    expect(readFileSync(workerGitConfig(dir), 'utf8')).not.toContain(credentialHelper(testDeployment().github.cli))
+    const fill = exec('git', ['credential', 'fill'], { cwd: dir, env, timeout: 10_000 })
+    fill.child.stdin?.end('protocol=https\nhost=github.com\n\n')
+    await expect(fill).rejects.toMatchObject({ stderr: expect.stringContaining('terminal prompts disabled') })
+  })
   it('run a wrapper that calls `gh` by name without reaching the shim again, and keep the caller\'s other PATH entries', async () => {
     program(join(dir, 'real', 'gh'), 'echo "{\\"login\\":\\"agent-bot\\",\\"config\\":\\"$GH_CONFIG_DIR\\",\\"path\\":\\"$PATH\\"}"')
     const wrapper = program(join(dir, 'gh-agent'), `GH_CONFIG_DIR=${dir}/agent-config exec gh "$@"`)

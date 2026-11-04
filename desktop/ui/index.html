@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; frame-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Loom · 陆兮个人助手</title>
+  <link rel="stylesheet" href="./shell.css">
+  <link rel="stylesheet" href="./onboarding.css">
+</head>
+<body>
+  <header class="desktop-bar">
+    <div class="brand"><img src="../assets/icon.png" alt=""><strong>Loom<span>.</span></strong><span class="edition">个人助手</span></div>
+    <div class="bar-actions"><span id="connection" role="status"><i></i><span>正在连接本机助手</span></span><button id="status-button">连接与运行状态</button></div>
+  </header>
+  <main id="onboarding-panel" hidden>
+    <div class="intro"><span class="eyebrow">WELCOME TO LOOM</span><h1>让你的助手，从这里开始。</h1><p>连接模型与飞书，告诉 Loom 可以关注哪些工作。</p></div>
+    <nav id="setup-steps" class="setup-steps" aria-label="首次配置进度"></nav>
+    <section class="connection-card setup-card">
+      <section class="setup-page" data-step="0">
+        <div class="card-heading"><h2>先准备本机环境</h2><span class="version">01 / 05</span></div>
+        <p class="card-description">为这次配置创建独立的执行环境、凭据和任务库。已有助手继续运行，配置不会自动导入。</p>
+        <div id="setup-environment" class="setup-environment"></div>
+        <details class="setup-help"><summary>如果有环境依赖缺失</summary><p>本轮向导使用这台 Linux 上已有的 Loom 办公引擎、Node、DeepSeek Harness、Python、tmux 和飞书 CLI。全新电脑的一键安装尚未包含在安装包中；补齐缺失项后可重新检查。</p></details>
+        <div class="actions"><button id="setup-prepare" class="primary">准备运行环境 →</button><button id="setup-check">重新检查</button></div>
+        <p class="setup-note">首次准备可能下载组件。只写入新环境，不自动启动任务或接收飞书消息。</p>
+      </section>
+      <form class="setup-page" data-step="1" id="setup-model-form" hidden>
+        <div class="card-heading"><h2>连接你选择的模型</h2><span class="version">02 / 05</span></div>
+        <p class="card-description">支持 OpenAI 兼容接口。验证时发送一条固定的短请求，可能产生少量 API 费用。</p>
+        <label class="setup-field">服务商<select id="setup-provider"><option value="custom">自定义兼容接口</option><option value="dashscope">阿里百炼</option><option value="deepseek">DeepSeek 官方接口</option></select></label>
+        <label class="setup-field">API 地址<input id="setup-base" type="url" required maxlength="1024" placeholder="https://你的服务商/v1" autocomplete="off"></label>
+        <label class="setup-field">模型 ID<input id="setup-model" required maxlength="200" placeholder="填写服务商提供的准确模型 ID" autocomplete="off"></label>
+        <label class="setup-field">API Key<input id="setup-key" type="password" maxlength="8192" autocomplete="off" spellcheck="false" placeholder="只在本机输入"></label>
+        <p class="setup-note">密钥以仅本人可读的凭据文件保存，不写入聊天、页面缓存或任务正文。</p>
+        <div class="actions"><button class="primary" type="submit">验证并继续 →</button><button type="button" class="setup-back">上一步</button></div>
+      </form>
+      <form class="setup-page" data-step="2" id="setup-bot-form" hidden>
+        <div class="card-heading"><h2>连接飞书机器人</h2><span class="version">03 / 05</span></div>
+        <p class="card-description">使用企业自建应用的机器人身份，先校验应用。此时还不会开始监听。</p>
+        <label class="setup-field">App ID<input id="setup-app-id" required maxlength="100" placeholder="cli_…" autocomplete="off"></label>
+        <label class="setup-field">App Secret<input id="setup-app-secret" type="password" maxlength="8192" autocomplete="off" spellcheck="false" placeholder="从开发者后台复制真实 Secret"></label>
+        <details class="setup-help"><summary>还没有可用的飞书应用？查看准备步骤</summary>
+          <ol><li>在飞书开发者后台创建企业自建应用，并启用「机器人」。</li><li>为消息接收配置「长连接」，订阅 <code>im.message.receive_v1</code>。</li><li>开通机器人消息读取、发送、群信息与附件权限；静默识别另需「获取群组中所有消息」权限。</li><li>发布应用并完成企业侧审批，再把机器人加入你要选择的群。</li><li>从「凭证与基础信息」复制 App ID 和 Secret。</li></ol>
+          <p>向导会实际验证身份；平台权限与审批必须在飞书中完成。没有全群消息权限时，不能据此宣称静默监听可用。</p>
+          <button type="button" id="setup-console">打开飞书开发者后台</button>
+        </details>
+        <div class="actions"><button class="primary" type="submit">验证机器人并继续 →</button><button type="button" class="setup-back">上一步</button></div>
+      </form>
+      <form class="setup-page" data-step="3" id="setup-scope-form" hidden>
+        <div class="card-heading"><h2>决定助手可以关注什么</h2><span class="version">04 / 05</span></div>
+        <p class="card-description">第一版只服务你本人。其他人不能发起或继续任务，未选中的群不会接入。</p>
+        <label class="setup-field">你的飞书身份<input id="setup-owner" required maxlength="100" placeholder="本应用下你的 Open ID：ou_…" autocomplete="off"></label>
+        <div class="setup-owner-tools"><select id="setup-member-chat" aria-label="选择一个群以查找本人"><option value="">从一个群的成员中选择本人…</option></select><button type="button" id="setup-members">查找本人</button></div>
+        <select id="setup-member-select" aria-label="选择你本人" hidden></select>
+        <p class="setup-note">Open ID 随应用变化，不能照搬另一个机器人的用户 ID。可先把机器人加入一个测试群，再从该群成员中选择你本人。</p>
+        <label class="setup-check"><input id="setup-direct" type="checkbox" checked>接收我与机器人的私聊</label>
+        <div class="setup-section-heading"><strong>接入哪些群（最多 3 个）</strong><button type="button" id="setup-groups">刷新群列表</button></div>
+        <div id="setup-groups-list" class="setup-groups"></div>
+        <fieldset class="setup-mode"><legend>自主处理方式</legend><label><input type="radio" name="setup-mode" value="observe" checked><span><strong>先观察</strong><small>不 @ 的候选需求只记录；明确私聊或 @ 仍可执行。</small></span></label><label><input type="radio" name="setup-mode" value="auto"><span><strong>自动执行</strong><small>在所选群内，符合总结、数据、检索规则的本人需求可静默开工。</small></span></label></fieldset>
+        <div class="actions"><button class="primary" type="submit">保存范围并继续 →</button><button type="button" class="setup-back">上一步</button></div>
+      </form>
+      <section class="setup-page" data-step="4" hidden>
+        <div class="card-heading"><h2>核对配置，准备开始</h2><span class="version">05 / 05</span></div>
+        <p class="card-description">启动后，Loom 会按下面的范围接收新消息。已有助手与新配置的历史分别保留。</p>
+        <div id="setup-review" class="setup-review"></div>
+        <div id="setup-conflicts" class="missing" hidden></div>
+        <label class="setup-check setup-consent"><input id="setup-consent" type="checkbox">我确认这是我的飞书身份，并授权以上消息范围与处理方式。</label>
+        <div class="actions"><button id="setup-start" class="primary" disabled>启动我的助手 →</button><button type="button" class="setup-back">返回修改</button></div>
+        <p class="setup-note">邮箱、Codex 历史与自动邮件交付可以以后单独连接。模型与飞书凭据会在启动前再检查一次。</p>
+      </section>
+      <p id="setup-progress" class="setup-progress" role="status" aria-live="polite"></p>
+      <p id="setup-error" class="error" role="alert" hidden></p>
+    </section>
+    <footer>本机个人版 · 陆兮 Luxi <span>首次配置 · 独立环境</span></footer>
+  </main>
+  <main id="connection-panel">
+    <div class="intro"><span class="eyebrow">YOUR PERSONAL ASSISTANT</span><h1 id="headline">让工作，安静地向前。</h1><p id="message">正在识别这台设备上的个人助手…</p></div>
+    <section class="connection-card">
+      <div class="card-heading"><h2 id="card-title">连接本机助手</h2><span class="version">Linux · <span id="version">0.2.0</span></span></div>
+      <p class="card-description">自动沿用已有的飞书、模型、任务和产物，无需重复输入密钥。</p>
+      <div id="steps" class="steps"><div><span>01</span><strong>识别现有配置</strong><small>读取连接状态，不复制凭据</small></div><div><span>02</span><strong>连接执行引擎</strong><small>复用同一个 DeepSeek Harness</small></div><div><span>03</span><strong>继续你的工作</strong><small>任务会话与人工接管状态保留</small></div></div>
+      <div id="facts" class="facts" hidden></div>
+      <div id="missing" class="missing" hidden></div>
+      <p id="error" class="error" role="alert" hidden></p>
+      <div class="actions"><button class="primary" id="open-button" hidden>进入工作空间 →</button><button class="primary" id="start-button" hidden>启动本机助手</button><button id="refresh-button">重新检测</button><button id="setup-button" hidden>打开本机配置页面</button></div>
+      <div class="secondary-actions"><button class="text-button" id="choose-button">选择已有助手目录</button><button class="text-button" id="logs-button">查看本机运行日志</button></div>
+    </section>
+    <section id="preferences" class="preferences"><div><strong>需要时，再来找你。</strong><p>关闭窗口后，后台助手继续工作。完全退出客户端可使用应用菜单；停止助手需在托盘中单独操作。</p></div><label><input type="checkbox" id="notifications">任务完成或需要处理时，显示桌面提醒</label></section>
+    <button id="new-setup-button" class="text-button">从零配置一个独立助手</button>
+    <footer>本机个人版 · 陆兮 Luxi <span>电脑休眠或关机时，依赖本机的工作会等待恢复。</span></footer>
+  </main>
+  <div id="workspace" aria-label="Loom 个人工作空间" hidden></div>
+  <script src="./onboarding.js"></script>
+  <script src="./shell.js"></script>
+</body>
+</html>

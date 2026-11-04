@@ -16,7 +16,7 @@ import { cursorAt, POLL_HORIZON_MS, polled, pollThreads as pollEach } from './po
 import type { FeishuConfig } from './feishu.ts'
 
 export const runFeishu = (ctx: SourceContext, signal: AbortSignal): Promise<unknown> =>
-  Promise.allSettled([watch, backfillLoop, chatNamesLoop].map(loop => loop(ctx, signal)))
+  Promise.allSettled([watch(ctx, signal), watch(ctx, signal, 'card.action.trigger', 'cards'), backfillLoop(ctx, signal), chatNamesLoop(ctx, signal)])
 const enabled = (ctx: SourceContext): FeishuConfig | undefined => ctx.config<FeishuConfig>(SOURCE)
 const bot = (ctx: SourceContext): FeishuBot => {
   const resolved = ctx.deployment.feishu
@@ -40,24 +40,25 @@ function available(ctx: SourceContext): boolean {
 }
 
 /** Runs the live event consumer only while the Source is enabled; disabling it stops the consumer within five seconds. */
-async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
+async function watch(ctx: SourceContext, signal: AbortSignal, eventKey = 'im.message.receive_v1', entry = 'feishu'): Promise<void> {
   await ctx.ready
   // Setup restarts dsh-superagent once it resolves the bot; until then nothing runs.
   if (!available(ctx)) return
   let retry: number | undefined
+  const on = () => !!enabled(ctx) && (entry !== 'cards' || enabled(ctx)?.cardsEnabled === true)
   while (!signal.aborted) {
-    if (!enabled(ctx)) {
-      ctx.report('feishu', health('paused', 'sourceOff'))
+    if (!on()) {
+      ctx.report(entry, health('paused', 'sourceOff'))
       await delay(5000, undefined, { signal }).catch(() => {})
       continue
     }
     const running = new AbortController()
-    const check = setInterval(() => { if (!enabled(ctx)) running.abort() }, 5000)
+    const check = setInterval(() => { if (!on()) running.abort() }, 5000)
     const stop = () => running.abort()
     signal.addEventListener('abort', stop, { once: true })
     const began = Date.now()
-    try { await consume(ctx, running.signal) }
-    catch (error) { if (!running.signal.aborted) ctx.report('feishu', { state: 'error', detail: String(error) }) }
+    try { await consume(ctx, running.signal, eventKey, entry) }
+    catch (error) { if (!running.signal.aborted) ctx.report(entry, { state: 'error', detail: String(error) }) }
     finally { clearInterval(check); signal.removeEventListener('abort', stop) }
     if (running.signal.aborted) continue
     retry = consumerRetry(retry, Date.now() - began)
@@ -67,12 +68,12 @@ async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
 /** Wait before restarting the event consumer: 1s after a run that stayed up for a minute, otherwise exponential backoff up to 60s. */
 export const consumerRetry = (previous: number | undefined, ranMs: number): number =>
   previous === undefined || ranMs >= 60_000 ? 1000 : Math.min(previous * 2, 60_000)
-async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
-  const child = spawn(bot(ctx).cli, ['event', 'consume', 'im.message.receive_v1', '--as', 'bot'],
+async function consume(ctx: SourceContext, signal: AbortSignal, eventKey: string, entry: string): Promise<void> {
+  const child = spawn(bot(ctx).cli, ['event', 'consume', eventKey, '--as', 'bot'],
     { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
       LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } })
   const stdout = createInterface({ input: child.stdout }); const stderr = createInterface({ input: child.stderr })
-  let chain = Promise.resolve(); let diagnostic = ''; let ready = false
+  let chain = Promise.resolve(); let diagnostic = ''; let ready = false; let unhealthy = false
   const stop = (): void => { child.stdin.end(); child.kill('SIGTERM') }
   signal.addEventListener('abort', stop, { once: true })
   const timeout = setTimeout(() => { diagnostic = 'Feishu event consumer did not become ready within 45 seconds'; stop() }, 45_000)
@@ -80,12 +81,17 @@ async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
     diagnostic = line.slice(0, 4000)
     if (line.startsWith('[event] ready')) {
       ready = true; clearTimeout(timeout)
-      ctx.report('feishu', { state: 'ready', detail: 'Listening for bot events', at: new Date().toISOString() })
-    } else if (/WARN|drop|error/.test(line)) ctx.report('feishu', { state: 'error', detail: diagnostic })
+      // stdout and stderr are independent streams: a late ready marker must not hide an earlier parsing/drop error.
+      if (!unhealthy) ctx.report(entry, { state: 'ready', detail: entry === 'feishu' ? 'Listening for bot events' : 'Listening for card callbacks', at: new Date().toISOString() })
+    } else if (/WARN|drop|error/.test(line)) { unhealthy = true; ctx.report(entry, { state: 'error', detail: diagnostic }) }
   })
   stdout.on('line', (line: string) => {
     chain = chain.then(async () => {
       if (line.length > 1_048_576) throw new Error('Feishu event exceeds 1 MiB')
+      if (eventKey === 'card.action.trigger') {
+        if (enabled(ctx)?.cardsEnabled) await ctx.cardAction?.(JSON.parse(line))
+        return
+      }
       const trigger = feishuTrigger(JSON.parse(line), bot(ctx).botId, bot(ctx).appId)
       // Events already read when the Source is disabled are dropped; the consumer stops shortly after.
       if (!trigger || !enabled(ctx)) return
@@ -93,7 +99,7 @@ async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
       chats[String(trigger.meta.chatId)] = trigger.meta.direct === true
       ctx.state.set(KV.feishu.chats, chats)
       await receive(ctx, trigger)
-    }).catch(error => { ctx.report('feishu', { state: 'error', detail: String(error) }) })
+    }).catch(error => { unhealthy = true; ctx.report(entry, { state: 'error', detail: String(error) }) })
   })
   try {
     await new Promise<void>((resolve, reject) => {

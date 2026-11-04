@@ -238,12 +238,12 @@ export class Engine {
    */
   report(ticketId: string, report: WorkerReport): Ticket { return this.repo.atomic(() => this.assignments.report(ticketId, report)) }
   /**
-   * Handles an assignment that was running when the host stopped: restarts it with a recovery note unless its latest report is
+   * Handles an assignment interrupted by a host stop or explicit control return: restarts it with a cause-specific recovery note unless its latest report is
    * `waiting`, `ready`, `blocked`, or `failed` and no Input reached its worker after that report, in which case it keeps its
    * Session and state and gets the Inputs that wait for it.
    */
-  assignmentInterrupted(ticketId: string, assignmentId: string): void {
-    this.repo.atomic(() => { this.assignments.interrupted(ticketId, assignmentId) })
+  assignmentInterrupted(ticketId: string, assignmentId: string, cause: 'hostRestarted' | 'controlReturned' = 'hostRestarted'): void {
+    this.repo.atomic(() => { this.assignments.interrupted(ticketId, assignmentId, cause) })
   }
 
   // Settings

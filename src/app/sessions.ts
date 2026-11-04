@@ -18,6 +18,7 @@ import { bundledSkills } from './skill-files.ts'
 import { SKILL_PREFIX, type PromptVersion, type Prompts } from './prompts.ts'
 import type { Store } from './store.ts'
 import { KV } from '../kv.ts'
+import type { TaskControls } from './task-control.ts'
 import type { RegisterTool, Tool } from './tools/tool.ts'
 
 /** Host dependencies used by `Sessions`. */
@@ -31,6 +32,7 @@ export interface SessionsHost {
   readonly health: HealthEntry
   readonly masterId: string
   readonly lifetime: AbortSignal
+  readonly controls?: TaskControls
   closing(): boolean
   /** Execution environment variables for `ticket`, rendered into its worker's system prompt. */
   environment(ticket: Ticket): Variable[]
@@ -211,7 +213,13 @@ export class Sessions {
           const image = value && typeof value === 'object' && 'image' in value ? (value as { image: never }).image : undefined
           return image ? [text, { type: 'image' as const, attachment: image }] : [text]
         } },
-        execute: (args, execution) => execute(schema.parse(args), execution.signal) }))
+        execute: (args, execution) => {
+          const parsed = schema.parse(args)
+          const target = this.ticketOf(agent)?.id ?? (parsed && typeof parsed === 'object' && 'ticket_id' in parsed
+            && typeof parsed.ticket_id === 'string' ? parsed.ticket_id : undefined)
+          if (!target || name === 'orchestrator_read' || !this.host.controls) return execute(parsed, execution.signal)
+          return this.host.controls.run(target, name, signal => execute(parsed, AbortSignal.any([signal, execution.signal])))
+        } }))
     }
   }
   /** Returns `sessionId`'s active model-budget retry state (`{ model_retry }`) for status listings, or `{}` when not waiting on one. */
@@ -261,7 +269,9 @@ export class Sessions {
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
       binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
-        agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
+        agent.ctx.tools.guard(execution => execution.name === 'bash' && host.store.settings().sources.github?.enabled === false
+          ? 'The personal office router uses orchestrator_read for source data; its shell is disabled'
+          : noWait(execution, () => this.routed(agent))))
     } else {
       // An Executor Session keeps the profile's work tools it has, which DSH requires to be known; its own tools are not masked.
       binding.disposers.push(...this.workOnly(agent, ticket!.id))
@@ -289,10 +299,20 @@ export class Sessions {
   private workOnly(agent: Agent, ticketId: string): (() => void)[] {
     const store = this.host.store
     const parent = scopeParentOf(agent)
-    const allow = WORK_TOOLS.filter(name => agent.ctx.tools.get(name, parent))
-    return [agent.ctx.tools.restrict({ allow }), agent.ctx.tools.guard(() => {
+    const codex = store.tickets.get(ticketId)?.mandate.actor.source === 'codex-daily'
+    const allow = codex ? [] : WORK_TOOLS.filter(name => agent.ctx.tools.get(name, parent))
+    return [agent.ctx.tools.restrict({ allow }), agent.ctx.tools.guard(execution => {
+      if (codex && !['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report'].includes(execution.name)) return 'Codex daily reports allow scoped reads and reports only'
       const current = store.tickets.get(ticketId)
+      if (this.host.controls?.held(ticketId)) return 'Task paused or under human control; only the operator can return it'
       return !current || !liveTicket(current) ? 'Ticket ended; new work needs a new authorized ticket' : undefined
+    }), agent.ctx.on('tools/execute', async (execution, next) => {
+      if (!this.host.controls || execution.name.startsWith('orchestrator_')) return next()
+      return this.host.controls.run(ticketId, execution.name, async signal => {
+        const original = execution.signal
+        execution.signal = AbortSignal.any([original, signal])
+        try { return await next() } finally { execution.signal = original }
+      })
     })]
   }
   /**
@@ -317,7 +337,7 @@ export class Sessions {
     previous?.dispose()
     const disposers: (() => void)[] = []
     for (const [name, content] of this.host.prompts.skills(version.config)) {
-      const bundled = name === 'feishu' || name === 'github' ? bundledSkills[name] : undefined
+      const bundled = name === 'feishu' || name === 'github' || name === 'office' ? bundledSkills[name] : undefined
       const body = version.config.skills[name] ?? ''
       const description = bundled?.description ?? (body.replace(/\s+/g, ' ').slice(0, 120) || 'Custom dsh-superagent operational skill.')
       disposers.push(scope.skills.register({ name: `${SKILL_PREFIX}${name}`, description, content, source: 'runtime',

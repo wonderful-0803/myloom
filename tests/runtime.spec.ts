@@ -146,7 +146,7 @@ beforeEach(async () => {
     [`git -C ${directory} remote get-url --push origin`]: 'https://github.com/acme/widgets.git\n',
     [`${AGENT()} api user`]: '{"login":"agent-bot","id":7}', [`${AGENT()} api repos/acme/widgets --jq {name: .full_name, push: .permissions.push}`]: '{"name":"acme/widgets","push":true}\n',
     [`${OTHER()} api user`]: '{"login":"agent-bot","id":7}', [`${OTHER()} api repos/acme/widgets --jq {name: .full_name, push: .permissions.push}`]: '{"name":"acme/widgets","push":true}\n',
-    [`${BOT()} auth status`]: JSON.stringify({ appId: 'cli_bot', brand: 'feishu', identities: { bot: { status: 'ready' } } }),
+    [`${BOT()} auth status --verify`]: JSON.stringify({ appId: 'cli_bot', brand: 'feishu', identities: { bot: { status: 'ready', verified: true } } }),
     [`${BOT()} config strict-mode`]: 'strict-mode: bot (source: profile)',
     [`${BOT()} api GET /open-apis/bot/v3/info --as bot --format ndjson`]: '{"bot":{"open_id":"ou_bot"},"code":0,"msg":"ok"}',
     [HELPERS]: `file:${workerGitConfig(directory)}\0${credentialHelper(AGENT())}\0`,
@@ -1165,14 +1165,17 @@ it('shows a failed reply as a problem with its attempts, an error of the reply e
 describe('the order of a Ticket\'s messages to one conversation', () => {
   const sent: string[] = []
   const refused = new Set<string>()
-  const message = (id: string, ticketId: string, channel = feishuChannel(CHAT, 'om_1')) => ({ id, channel, text: id, kind: 'reply' as const, ticketId })
+  const ticketIds = new Map<string, string>()
+  const message = (id: string, ticket: string, channel = feishuChannel(CHAT, 'om_1')) =>
+    ({ id, channel, text: id, kind: 'reply' as const, ticketId: ticketIds.get(ticket)! })
   const at = async (ms: number) => {
     vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + ms })
     try { await runtime.sendReplies() } finally { vi.useRealTimers() }
   }
   beforeEach(async () => {
     sent.length = 0; refused.clear()
-    await acceptedTicket()
+    ticketIds.set('a', (await acceptedTicket()).ticket.id)
+    ticketIds.set('b', (await acceptedTicket(feishu('2', '@bot 第二项工作'))).ticket.id)
     vi.spyOn(runtime.sources, 'send').mockImplementation(async message => {
       if (refused.has(message.id)) throw new Error('internal error (2200)')
       sent.push(message.id)

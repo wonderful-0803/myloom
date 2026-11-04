@@ -65,12 +65,17 @@ def ps(*options, check=False):
 
 def running(pid, profile):
     """Return whether `pid` is currently running the DSH service for `profile` (`ps -p` returns nothing once exited)."""
-    return any(found == pid and name in ('node', 'dsh') and serves(args, profile) for found, name, args in ps('-p', str(pid)))
+    return any(found == pid and node_process(name, args) and serves(args, profile) for found, name, args in ps('-p', str(pid)))
+
+
+def node_process(name, args):
+    """Node can report MainThread as its Linux comm; still require a Node/DSH executable."""
+    return name in ('node', 'dsh') or (name == 'MainThread' and args and Path(args[0]).name in ('node', 'dsh'))
 
 
 def processes(profile):
     """Return PIDs of all running DSH service processes for `profile`, including instances started outside this script and the recorded `service.pid` while still running."""
-    found = [pid for pid, name, args in ps('-ax', check=True) if name in ('node', 'dsh') and serves(args, profile)]
+    found = [pid for pid, name, args in ps('-ax', check=True) if node_process(name, args) and serves(args, profile)]
     try:
         pid = int((control(profile) / 'service.pid').read_text())
     except (OSError, ValueError):
@@ -174,7 +179,12 @@ def start(args):
         log.touch()
         prune_logs(args.profile)
         # `exec` replaces the shell so the pane PID printed by tmux is the DSH service process itself.
-        command = ('umask 077; exec ' + shlex.join([dsh, '--profile', args.profile, '--no-open'])
+        launch = [dsh, '--profile', args.profile, '--no-open']
+        # An existing tmux server retains its old environment; select this installation explicitly.
+        roots = [name + '=' + os.environ[name] for name in ('DSH_HOME', 'DSH_AGENTS_HOME') if os.environ.get(name)]
+        if roots:
+            launch = ['env', *roots, *launch]
+        command = ('umask 077; exec ' + shlex.join(launch)
                    + ' >> ' + shlex.quote(str(log)) + ' 2>&1')
         # Reuse an existing tmux session without disturbing other windows.
         target = ['new-window', '-t', '=' + session + ':'] if exists else ['new-session', '-s', session]

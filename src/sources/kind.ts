@@ -94,8 +94,12 @@ export interface SourceKind<C extends Record<string, unknown> = Record<string, u
   fields: FieldSpec[]
   /** Health entry names owned by this kind under `health[...]`; no other kind or core loop may report them. */
   health: string[]
+  /** Optional background features need not affect the Source lifecycle while disabled. */
+  activeHealth?(config: C): string[]
   /** Listening rule for a trigger (or recorded Mandate basis) of this kind; kinds without `scope` listen to everything they produce and observe none of it. */
   scope?(input: { meta: Record<string, unknown> }, config: C): ScopeResult
+  /** Optional intake guard, applied before subscription fan-out as well as new-task admission. */
+  actorAllowed?(actor: Trigger['actor'], config: C, allowed: readonly { id: string }[]): boolean
   /** Outbound reply adapter; kinds without `channel` produce no replies or channel checks. */
   channel?: SourceChannel<C>
   /** Bounded context reader for assessments; assessments of a kind without `threadContext` read none. */

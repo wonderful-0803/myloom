@@ -42,7 +42,7 @@ it('reads the lists, a ticket, a decision, the settings, the prompts and the mod
   }
   expect(JSON.parse((await read('settings/policy') as { text: string }).text).value.sources.feishu.allowed).toEqual([{ id: 'ou_alice', name: 'Alice' }])
   await expect(read('settings/source:retired')).rejects.toThrow('Unknown settings block')
-  const skills = { built_in: ['dsh-superagent-feishu', 'dsh-superagent-github'], team: [] }
+  const skills = { built_in: ['dsh-superagent-feishu', 'dsh-superagent-github', 'dsh-superagent-office'], team: [] }
   expect(await read('prompts')).toMatchObject({ revision: 0, read: 'prompts/0', skills, items: [expect.objectContaining({ revision: 0 })], next_offset: null })
   const models = [{ id: 'm1', name: 'One' }, { id: 'm2', name: 'Two' }]
   const catalog = { default: { provider: 'p', model: 'm1' }, groups: [{ id: 'p', name: 'Provider', models }], failures: [] }
@@ -269,8 +269,11 @@ it('saves a settings block by name, a Source\'s block with the Source\'s id', as
   const off = { enabled: false, config: github.config }
   await expect(save({ block: 'source', value: off, revision: github.revision })).rejects.toThrow('source names the Source')
   await expect(save({ block: 'source:github', value: off, revision: github.revision })).rejects.toThrow()
-  expect(await save({ block: 'source', source: 'github', value: off, revision: github.revision })).toMatchObject({ saved: true })
-  expect(h.runtime.store.settings().sources.github?.enabled).toBe(false)
+  await expect(save({ block: 'source', source: 'github', value: off, revision: github.revision })).rejects.toThrow('management panel')
+  expect(h.runtime.store.settings().sources.github?.enabled).toBe(true)
+  const value = { enabled: true, config: { ...github.config, pollSeconds: 90 } }
+  expect(await save({ block: 'source', source: 'github', value, revision: github.revision })).toMatchObject({ saved: true })
+  expect(h.runtime.store.settings().sources.github?.config.pollSeconds).toBe(90)
   expect(await save({ block: 'pause', value: { paused: true }, revision: 0 })).toEqual({ paused: true })
 })
 

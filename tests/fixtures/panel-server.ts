@@ -327,6 +327,15 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
   'GET tickets': { query: ['state', 'offset', 'limit'], answer: ({ query }) => page(server.tickets[query.state === 'ended' ? 'ended'
     : 'open']) },
   'GET tickets/:id': { answer: ({ params }) => server.ticketDetails[params.id] ?? refuse(404, 'Ticket not found') },
+  'GET tickets/:id/control': { answer: () => ({ mode: 'agent', revision: 0, drained: true, operations: [], history: [] }) },
+  'POST tickets/:id/control': { body: true, answer: ({ params, body }) => {
+    const ticket = server.ticketDetails[params.id]
+    if (!ticket?.control) return refuse(404, 'Task control unavailable')
+    if (ticket.control.revision !== body.revision) return refuse(409, 'Control state changed')
+    ticket.control = { ...ticket.control, revision: body.revision + 1,
+      mode: body.action === 'pause' ? 'paused' : body.action === 'takeover' ? 'human' : 'agent' }
+    return ticket.control
+  } },
   'POST tickets/:id/retry': { answer: ({ params }) => {
     const ticket = ticketOf(params.id)
     if (!ticket) return refuse(404, 'Ticket not found')

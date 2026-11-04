@@ -1,3 +1,7 @@
+Deliver office results with sources, period, checks and limits; no PR/commit/CI. Keep files in the ticket directory and useful report content for the original channel. Preserve human edits; local paths are not cloud links. PR rules below apply to code.
+
+Honor exact line/column counts and JSON-only output. Keep routine audit notes internal, essential sources/limitations inline. Check final text; no extra footer.
+
 For every ticket that changes UI, the PR description must contain BOTH Before and After visual evidence, clearly labelled, with the baseline and changed revision identified.
 Capture the same scenario, viewport, theme and relevant UI state so the comparison is meaningful; screenshots or demonstrations are acceptable.
 After-only evidence is incomplete.

@@ -293,6 +293,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/index.ts` | The main plugin entry: reads the machine settings, starts the Runtime, and gives it the restart that a save of a Source's account uses |
 | `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment` and `resolveFeishuBot` read the repository and the accounts from the Source settings, each CLI run as Executor shells run it; `SETUP_FIELDS` lists the Source fields setup reads. The code names no person, account or organization |
 | `src/setup.ts` | Setup problems: `SetupError`, with a code, the place that fixes it and the English text the log, the main Session and the panel share |
+| `src/personal-setup.ts` | Initializes versioned personal office settings in an explicitly owned desktop instance without importing or replacing existing credentials, history or state |
 | `src/policy.ts` | The Policy: the settings schemas by block, the Policy version, the gate and Mandate revalidation |
 | `src/admission.ts` | The admission table's values, each cell's options and defaults, shared with the panel |
 | `src/limits.ts` | The limits of the values a person sets, which the settings schemas check and the panel's fields offer |
@@ -317,6 +318,12 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/setup.ts` | Setup, and `setupChanged`, whether a save changes a field setup reads |
 | `src/app/passes.ts` | Passes, the pass scheduler |
 | `src/app/outbox.ts` | The Outbox: the Engine's `Outbox` port, the receipts and the `reply` effects that send them |
+| `src/app/task-control.ts` | Durable personal task control, managed operation leases, quiescent handover and explicit review after ambiguous crashes |
+| `src/app/feishu-assistant.ts` | Owner-authenticated task queries, saved report exports and revision-aware task controls before Engine intake; durable responses recheck authorization before delivery |
+| `src/app/feishu-mail.ts` | Owner-bound Feishu/163 mailbox verification, fixed report previews, explicit confirmation, task-version checks and non-replayed mail delivery |
+| `src/app/artifacts.ts` | Immutable report revisions, provenance hashes, current source authorization, human edit conflicts and task requirement fingerprints |
+| `src/app/feishu-cards.ts` | Card 2.0 state/list/edit rendering, escaped content and native callback schema; actual authority lives in server-side grants |
+| `src/app/quiet-drafts.ts` | Optional observe-summary drafts and explicit private draft requests, tool-free bounded model calls, durable budgets and no automatic delivery |
 | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
 | `src/app/store.ts` | The Store, and `Receipt`, a message of the outbox |
 | `src/app/store-read.ts` | `storeReads`: the Store's read queries for the views, the tools and the Sources' polls, which never write |
@@ -343,6 +350,22 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/tools/main.ts` | The main Session's tools |
 | `src/app/tools/executor.ts` | An Executor Session's tools |
 | `src/app/http.ts` | The `/orchestrator/api` routes: the same-origin check, request limits and one status per kind of failure |
+| `src/app/loom.ts`, `src/app/loom-types.ts` | Owner-scoped Loom API and browser-safe records, reusing task controls, immutable artifacts, drafts and reviewed mail |
+| `src/app/delegations.ts` | Owner-managed standing delegations: scoped versioned rules, revision checks, idempotent creation and atomic configuration receipts |
+| `src/app/task-progress.ts` | Read-only native task activity, step/tool durations and handover state; no raw commands, tool output or private reasoning |
+| `src/app/result-delivery.ts` | Owner-scoped default/per-task report delivery, fixed recipient grants, durable publication receipts and revocation/handover checks |
+| `src/app/codex-rpc.ts` | Short-lived Codex App Server stdio client with a read-method allowlist, time/output bounds and denied server tool/approval requests |
+| `src/app/codex-history.ts` | Separate owner/day view grants and bounded recurring-report snapshots; native time filtering, pagination and scope rechecks |
+| `src/codex-delegation.ts` | Bounded Codex report scopes, Shanghai dates and stable scope/day identities |
+| `src/app/codex-daily.ts` | Owner-authorized daily schedule and manual intake, durable deduplication, scoped source snapshots and ordinary Harness task creation |
+| `loom/src/client/LiveApp.tsx`, `loom/src/client/live.css` | The supplied Loom workspace connected to the existing Runtime at `/orchestrator/loom/`; demo code stays separate |
+| `loom/src/client/components/CodexDelegationFields.tsx` | Codex report scope picker, schedule, delivery and explicit recurring-data consent |
+| `loom/src/client/live-sync.ts` | Single-flight, bounded live refresh across focus, route and embedded visibility changes |
+| `loom/src/client/components/DelegationBoard.tsx` | The live standing delegation editor, switches and associated task/deliverable navigation |
+| `loom/src/client/components/AutomationPanel.tsx` | Live base-rule automation mode and rule switches with independent settings revisions |
+| `loom/src/client/components/TaskProgressPanel.tsx` | Owner task activity polling, native action timings and explicit handover/pending-operation states |
+| `loom/src/client/components/DeliveryPanel.tsx` | Default and task-specific report delivery, bound-mailbox opt-in and independent publication receipts |
+| `loom/src/client/components/CodexHistoryPanel.tsx` | Day-authorized local Codex session list, message pagination and revocation; no execution controls |
 | `src/app/api.ts` | `Api`, every route with its parameters, query, body and response, and the filters of the lists; it imports only types, so the panel bundles it |
 | `src/app/views/text.ts` | The two forms of a view's text: `preview`, plain text on one line, and `markdown` without HTML; `plain` and `readable` |
 | `src/app/views/records.ts` | The rows the views share: Triggers, Tickets, Threads, Decisions and Channel links, and `ownersOf`, the owners of follow-ups as one request reads them |
@@ -424,6 +447,24 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/delivery.spec.ts` | `AgentDelivery` |
 | `tests/retry-health.spec.ts`, `tests/role-models.spec.ts` | Model budget retries, and the models of the two roles |
 | `tests/runtime.spec.ts` | The whole application on a simulated DeepSeek Harness host, through tools and HTTP |
+| `tests/personal.spec.ts` | Feishu-only startup without GitHub, office result delivery and continuation, and silent observe/auto rule handling |
+| `tests/personal-setup.spec.ts` | Desktop-owned initial settings, single-owner and source-scope validation, idempotent initialization, and refusal to replace existing or foreign state |
+| `tests/task-control.spec.ts` | Durable personal task holds, native tool leases, in-flight and queued delivery, recovery, and owner-only follow-ups |
+| `tests/feishu-assistant.spec.ts` | Real source ingress for owner task queries and controls, private report exports, replay/freshness/revision checks, authorization revocation and uncertain sends |
+| `tests/feishu-mail.spec.ts` | Fixed-recipient Feishu/163 mail previews, confirmation, provider/account binding, SMTP acceptance versus delivery, pause/revocation, unknown outcomes and private ingress |
+| `tests/artifacts.spec.ts` | Immutable report revisions, source revocation, drained human control and stale Worker publication conflicts |
+| `tests/loom-live-sync.spec.ts` | Slow request completion, hidden embedded tabs, route/visibility refresh, abort and stale-data retry behavior |
+| `tests/loom.spec.ts` | The live Loom adapter: shared records, source revocation, control and artifact revisions, draft confirmation and mail permits |
+| `tests/delegations.spec.ts` | Standing delegation persistence, atomic receipts, owner/scope/freshness filters, per-rule auto acceptance, independent workers, disabling and source revocation holds |
+| `tests/task-progress.spec.ts` | Read-only native activity and timings, reasoning/log suppression, retry blockers, drained handover, return causes and revocation during inspection |
+| `tests/result-delivery.spec.ts` | Real completion-to-file publication, immutable text snapshots, source boundaries, preference revisions, task overrides, unknown results and standing mailbox revocation |
+| `tests/codex-history.spec.ts` | Day/owner opt-in, archived and older sessions, Shanghai boundaries, context/tool/reasoning suppression, pagination and asynchronous withdrawal |
+| `tests/codex-daily.spec.ts` | Recurring grants, ordinary task/report flow, manual-clock deduplication, schedule semantics, bounded retries, revocation and private delivery |
+| `tests/codex-rpc.spec.ts` | Read-only stdio framing, initialization, denied execution/approval calls, output limits, timeout, cancellation and sanitized diagnostics |
+| `tests/feishu-cards.spec.ts` | Native callback ingress, real-operator/card/grant binding, stale controls, deduplication, edit forms and escaped content |
+| `tests/quiet-drafts.spec.ts` | Observe decisions stay silent, private requests bypass task routing, tool-free calls, budgets, interrupted attempts and source revocation |
+| `tests/smtp-mail.spec.ts` | Real Python SMTP bridge with fake TLS/auth/send: private configuration, safe MIME, sole owner recipient, durable deduplication, lost responses and secret suppression |
+| `tests/office-data.spec.ts` | Exact CSV aggregation, missing and duplicate rows, source snapshots, invalid values and path boundaries |
 | `tests/tools.spec.ts` | The Sessions' tools: what `orchestrator_read` reads for each role, and the shapes and checks of the other main Session tools |
 | `tests/runtime-concurrency.spec.ts` | Work that overlaps: Triggers during a pass, Tickets that change during deliveries and launches |
 | `tests/http.spec.ts` | The same-origin and loopback checks, the status of each kind of failure, the body limit, path parameters and queries |
@@ -437,6 +478,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/model-surface.spec.ts` | Everything models read: tools, prompts, skills and inputs, checked against the tool schemas, the execution environment and the glossary, within a size budget per role |
 | `tests/deployment.spec.ts`, `tests/environment.spec.ts`, `tests/index.spec.ts` | The plugin configuration and setup, the agent's process environment, the plugin entry |
 | `tests/service-script.spec.ts` | `scripts/dsh-superagent` against fake `ps`, `tmux` and `dsh` |
+| `tests/feishu-config-script.spec.ts` | Hidden operator credential input, mask rejection, preserving user configuration, and suppressing CLI secret output |
 | `tests/client.spec.tsx`, `tests/navigation.spec.ts`, `tests/controls.spec.tsx` | The client plugin's registration and polling, Session navigation and route memory, the local controls, and the panel's imports, which have no cycle |
 | `tests/panel-overview.spec.tsx`, `panel-source.spec.tsx`, `panel-trigger.spec.tsx`, `panel-eval.spec.tsx`, `panel-execution.spec.tsx` | Each page of the panel, against a fake management API answered by route |
 | `tests/panel-settings.spec.tsx`, `panel-prompts.spec.tsx`, `panel-deployment.spec.tsx`, `panel-panel.spec.tsx` | The settings groups, drafts and history, the prompts, the Deployment page, and the panel's search, glossary and route memory |
@@ -612,6 +654,8 @@ A settings save that changes a Source field setup reads, such as an account's CL
 Point `DSH_HOME` at a temporary directory and create a new profile there. Copy the database from a backup, disable every Source, pause processing and remove the main Session id. Give the GitHub and Feishu CLIs read-only stand-ins.
 
 ## Open questions
+
+The Linux desktop adapter lives separately in `desktop/`: `main.cjs` owns the native shell and isolated workspace view; `runtime.cjs` connects to the existing personal service; `policy.cjs` restricts targets and notifications; `preload.cjs` exposes narrow shell-only IPC. `desktop/ui/` contains the local connection screen, `scripts/` packages/installs the application and renders the existing Loom mark, and `test/runtime.test.cjs` covers its authority and lifecycle boundaries. It never opens Store or starts a second bot consumer. Opt-in `smoke.cjs` exercises the actual desktop application and records screenshots without creating business work.
 
 - Trust: which Trigger fields are trusted, such as the Source's actor and Thread membership, and which are not, such as the body and quotes.
 - Deployment isolation: the agent's profile on its own pinned DeepSeek Harness installation, so upgrading DeepSeek Harness elsewhere does not break it.

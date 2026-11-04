@@ -100,6 +100,10 @@ The accept mode is part of the Policy:
 
 Explicit requests work in every mode. Start in `observe` and switch to `auto` after reviewing the recorded Decisions. Each assessment judges every enabled rule exactly once, whether it matches or not. A proactive accept requires at least one matching rule.
 
+These are the defaults for ordinary rules. The local personal Loom panel can additionally save owner-managed standing delegations as rules. Each carries the native owner ID, 1–3 currently authorized all-message Feishu groups, optional keyword eligibility, activation time and its own `auto` or `observe` mode. An eligible delegation may assess a new event even when the default mode is `off`; its own `auto` mode can accept despite a default `observe` mode. The admission table, receiving scope, single owner and global processing pause still apply. Other rules gain no authority from that exception. A positive inference records only its automatic matched rules in the Mandate, and both the assessment adapter and engine recheck native event eligibility. Saving a delegation records a configuration receipt, never a synthetic human request or an automatic Worker launch.
+
+The standing instruction supplies ongoing intent; each matching event must still establish concrete material, settled direction and a bounded deliverable. It cannot create tool or data permissions. Creation is idempotent, edits use the policy revision, and the local panel saves receipts atomically with the rule. Model-origin settings calls cannot create, edit, remove or switch these standing authorizations.
+
 Each rule describes a kind of proactive work. The Ticket's Mandate records the matched rules, and its Executor receives their names and instructions.
 
 For that Ticket, a rule's process and communication requirements override the defaults. A silence rule can suppress an acknowledgement; a review rule can name the required reviewer and approval before merge. Requirements that apply to every Ticket belong in team prompt sections instead.
@@ -115,6 +119,8 @@ A version change discards running Evals and queues their Triggers again. It also
 - proactive work is no longer accepted, for example because the mode changed from `auto`.
 
 Unaffected Tickets receive no notice. The change does not immediately revoke live Tickets' Mandates.
+
+Owner-managed standing delegation tasks add a stricter hold: disabling their automatic authority or withdrawing their source/owner scope pauses unfinished inferred work through managed task controls, retaining in-flight visibility and history. Scope settings are checked even when they do not change the policy hash. Re-enabling the rule does not release saved holds; an explicit resume or return also rechecks the current delegation authority.
 
 Source configuration is separate from Policy. It controls what enters the system: which chats are read and whether a scope receives all messages or only mentions. A Mandate records its Source and receiving scope. Resuming needs the Source to still listen to the Thread, but does not require it to still receive every message there.
 
@@ -133,7 +139,7 @@ Only three operations change a Mandate: accept creates it, a person's stop withd
 The Source must still listen to the original Thread. The remaining checks depend on the Mandate's basis:
 
 - An explicit follow-up Mandate passes.
-- An inferred Mandate needs `auto` mode and its matched rules still enabled.
+- An inferred Mandate needs its matched rules still enabled and automatic: ordinary rules use global `auto`; standing delegation rules use their own `auto`, exact owner and currently authorized all-message group.
 - A Mandate admitted by a table cell must still receive at least its original strength under today's table and sender membership. Removing a sender from the list can therefore revoke a Mandate accepted through the listed-sender cell.
 - A bot's Mandate requires that bot to remain on the Source's bot list. Inferred table and bot Mandates also need `auto` mode and enabled matched rules.
 - Other Mandates require the sender to remain on the Source's allowed list.

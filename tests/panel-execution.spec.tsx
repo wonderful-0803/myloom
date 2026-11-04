@@ -7,6 +7,20 @@ import { usePanel, mount, remount, all, find, tab, click, type, text, field, at 
 import { MEMBER, server, ticketSummary, threadSummary } from './fixtures/panel-server.ts'
 
 usePanel()
+it('keeps task controls explicit and submits the displayed revision before rereading the task', async () => {
+  server.ticketDetails.t1!.control = { mode: 'agent', revision: 3, drained: true, operations: [], history: [] }
+  at({ page: 'execution', id: 't1' })
+  await mount()
+  expect(text()).toContain(zh['control.agent'])
+  await click(zh['controlAction.takeover'])
+  expect(server.requests.some(request => request.path.endsWith('/control'))).toBe(false)
+  await click(zh.confirm)
+  expect(server.requests.find(request => request.path === 'tickets/t1/control')).toMatchObject({ body: { action: 'takeover', revision: 3 } })
+  expect(text()).toContain(zh['control.human'])
+  await click(zh['controlAction.return']); await click(zh.confirm)
+  expect(server.requests.filter(request => request.path === 'tickets/t1/control').at(-1)).toMatchObject({ body: { action: 'return', revision: 4 } })
+  expect(text()).toContain(zh['control.agent'])
+})
 it('lists Tickets under Execution by who they wait on, with the Executor state and its pause as an action', async () => {
   server.tickets.open = [ticketSummary(), ticketSummary({ id: 't2', title: '执行中的工单', threads: [{ key: 'github:7',
     source: 'github', title: '#7 x', facts: { number: { value: '#7' }, autoMerge: { label: { zh: '自动合并', en: 'Auto-merge' },

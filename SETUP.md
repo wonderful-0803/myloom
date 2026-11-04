@@ -2,6 +2,10 @@
 
 Instructions for an agent that sets up dsh-superagent with its operator. If you are a person, ask your coding agent to read this file and follow it.
 
+## Personal assistant fork
+
+When the operator wants the Feishu-only personal office assistant, follow [docs/PERSONAL_SETUP.md](docs/PERSONAL_SETUP.md) and the personal examples instead of requiring GitHub accounts, a repository checkout, commit identity or auto-merge. Keep the one-question-at-a-time setup style below, ask only for missing relevant information, and never request secrets in chat. Disable the GitHub Source explicitly. The repository-oriented questions and worktree preparation below apply when GitHub coding is requested.
+
 ## How to run the setup
 
 The setup follows [docs/000-philosophy.md](docs/000-philosophy.md): it takes as little of the operator's attention as possible.

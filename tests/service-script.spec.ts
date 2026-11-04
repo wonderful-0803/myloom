@@ -6,7 +6,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 let root: string
 let server: Server | undefined
@@ -42,6 +42,7 @@ done < "$list"`)
   program('dsh', 'exit 0')
 })
 afterEach(() => {
+  vi.unstubAllEnvs()
   server?.close(); server = undefined
   for (const child of sleepers) child.kill()
   sleepers = []
@@ -84,6 +85,33 @@ it('takes no `dsh plugin` command of the profile for its service', async () => {
     `${service} node node /opt/my tools/dsh --profile superagent --no-open`)
   expect(await status('superagent')).toMatchObject({ pids: [service] })
 })
+it('recognizes Node MainThread processes and ignores unrelated executables with that comm', async () => {
+  const pid = sleeper()
+  processes(`${pid} MainThread node /opt/dsh --profile superagent --no-open`,
+    `${sleeper()} MainThread python3 script.py --profile superagent`)
+  expect(await status('superagent')).toMatchObject({ pids: [pid] })
+  expect(await run('stop', '--stop-timeout', '5')).toMatchObject({ code: 0 })
+}, 20_000)
+it('passes the selected Harness home explicitly to an existing tmux server', async () => {
+  const url = await answering()
+  const pid = sleeper()
+  writeFileSync(join(root, 'pane'), `${pid}\n`)
+  started(service(pid))
+  const home = join(root, "personal agent's home")
+  vi.stubEnv('DSH_HOME', home)
+  const agentsHome = join(root, "first-run agent's notes")
+  vi.stubEnv('DSH_AGENTS_HOME', agentsHome)
+  expect(await run('start', '--url', url, '--timeout', '10')).toMatchObject({ code: 0 })
+  const calls = readFileSync(join(root, 'tmux.log'), 'utf8')
+  expect(calls).toContain("umask 077; exec env 'DSH_HOME=")
+  // Parse the command as a shell would: spaces and quotes remain in the single env assignment.
+  const command = calls.split('\n').find(line => line.startsWith('umask 077; exec '))!
+  const words = JSON.parse(await new Promise<string>((resolve, reject) => execFile('python3',
+    ['-c', 'import json,shlex,sys;print(json.dumps(shlex.split(sys.argv[1])))', command],
+    (error, stdout) => error ? reject(error) : resolve(stdout)))) as string[]
+  expect(words).toContain(`DSH_HOME=${home}`)
+  expect(words).toContain(`DSH_AGENTS_HOME=${agentsHome}`)
+}, 20_000)
 it('records the service PID at start, and still refuses a second instance the scan finds', async () => {
   const url = await answering()
   const pid = sleeper()

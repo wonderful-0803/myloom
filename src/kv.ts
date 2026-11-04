@@ -6,6 +6,16 @@ import type { PromptVersion } from './app/prompts.ts'
 import type { SettingsVersion } from './app/store.ts'
 import type { SettingsSave } from './policy.ts'
 import type { Retry } from './sources/github.ts'
+import type { TaskControlState } from './app/task-control.ts'
+import type { AssistantRequest } from './app/feishu-assistant.ts'
+import type { MailProposal } from './app/feishu-mail.ts'
+import type { ArtifactVersion } from './app/artifacts.ts'
+import type { CardGrant } from './app/feishu-cards.ts'
+import type { QuietDraft } from './app/quiet-drafts.ts'
+import type { DelegationActivity } from './app/delegations.ts'
+import type { DeliverySetting, ResultReceipt } from './app/result-delivery.ts'
+import type { CodexDailyRun } from './app/codex-daily.ts'
+import type { CodexHistoryAccess } from './app/codex-history.ts'
 
 /** Key of a KV record whose value has type `V`; a plain string represents an untyped key. */
 export type Key<V> = string & { readonly __value?: V }
@@ -31,6 +41,19 @@ export const KV = {
     builtIn: family<string, [base: string]>('prompt-built-in:') },
   /** Runtime: the main Session's ID. */
   runtime: { masterId: record<string>('master-id') },
+  /** Task control leases and operator handover history. */
+  controls: { task: family<TaskControlState, [ticket: string]>('task-control:') },
+  /** Immutable artifact revisions and the current version number; never store credentials here. */
+  artifacts: { head: family<number, [subject: string]>('artifact-head:'),
+    version: family<ArtifactVersion, [subject: string, version: number]>('artifact-version:') },
+  results: { setting: family<DeliverySetting, [owner: string, subject: string]>('result-setting:'),
+    receipt: family<ResultReceipt, [id: string]>('result-receipt:') },
+  /** Explicit local Codex read access, bound to this owner and one Shanghai calendar day. No transcripts or credentials. */
+  codexHistory: { access: family<CodexHistoryAccess, [owner: string]>('codex-history-access:') },
+  codexDaily: { run: family<CodexDailyRun, [id: string]>('codex-daily-run:') },
+  cards: { grant: family<CardGrant, [token: string]>('feishu-card-grant:') },
+  drafts: { record: family<QuietDraft, [id: string]>('quiet-draft:') },
+  delegations: { activity: family<DelegationActivity, [id: string]>('delegation-activity:') },
   /** Sessions: prompt revisions each Session has worked under, ordered oldest first; the last entry (`.at(-1)`) is its active revision. */
   sessions: { prompts: family<number[], [session: string]>('session-prompts:') },
   /** Schema 11 migration: legacy main-Session queues imported into the effect table. */
@@ -53,6 +76,12 @@ export const KV = {
    * to last-seen timestamp; and per-polled-thread seen message IDs and initialization flag.
    */
   feishu: { chats: record<Record<string, boolean>>('feishu-chats'), history: family<string, [chat: string]>('feishu-history:'),
+    assistant: family<AssistantRequest, [trigger: string]>('feishu-assistant:'),
+    assistantThread: family<string, [message: string]>('feishu-assistant-task:'),
+    assistantMessage: family<string, [message: string]>('feishu-assistant-message:'),
+    /** Last explicitly selected private context, scoped to both owner and chat, never a global recent task. */
+    assistantFocus: family<{ requestId: string; at: string }, [owner: string, chat: string]>('feishu-assistant-focus:'),
+    mail: family<MailProposal, [token: string]>('feishu-mail:'),
     topics: family<Record<string, string>, [chat: string]>('feishu-history-threads:'),
     seen: family<string[], [thread: string]>('thread-seen:'), initialized: family<boolean, [thread: string]>('thread-initialized:') },
 }

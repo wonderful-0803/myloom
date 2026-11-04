@@ -13,7 +13,7 @@
     # The agent preset of every Executor Session (WORKER_PRESET in src/app/sessions.ts); the main Session has its own, below.
     # It is DSH's `standard` preset with only what a worker needs, and a shell whose foreground command moves to a background job
     # after 5 seconds, so a long command does not hold back a person's message, which the Session takes at its next step. Left
-    # out: questions to a person, presenting, plan mode, the plugin manager and market, scheduling, goals, workflows, web fetch,
+    # out: questions to a person, presenting, plan mode, the plugin manager and market, scheduling, goals, workflows,
     # and forked subagents, which would run under this preset; spawned subagents run under `standard`, whose shell moves a
     # command to a background job only after 60 seconds, as a subagent's jobs are killed when it ends. A preset row has no
     # setting that hides it from the preset picker, so its name and description say whom it is for.
@@ -28,7 +28,7 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              prefix: You are a coding agent powered by the {{model}} model.
+              prefix: You are an assistant powered by the {{model}} model. Complete authorized office and coding tasks.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -116,7 +116,7 @@
           - id: tool-web
             name: '@deepseek-ai/dsh-tool-web'
             config:
-              fetch: false
+              fetch: true
               searchTimeoutMs: 60000
     # The agent preset of the main Session (ROUTER_PRESET in src/app/sessions.ts). The worker's 5-second shell and job waits, so a command or a wait does not hold back the next candidates, and
     # only what the main Session uses: no subagents, web, file search or writes, todo list, questions to a person, presenting,

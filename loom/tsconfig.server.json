@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "outDir": "dist"
+  },
+  "include": ["src/server/**/*", "src/shared/**/*", "src/demo.ts"],
+  "exclude": ["node_modules", "dist", "src/client"]
+}

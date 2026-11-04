@@ -19,12 +19,20 @@ const MembersSchema = z.looseObject({
   has_more: z.boolean(), truncations: z.array(z.unknown()).optional(),
 })
 const FeishuConfigSchema = FeishuBotSchema.extend({
+  mailCli: z.string().default(''),
+  mailProvider: z.enum(['feishu', '163']).default('feishu'),
+  smtpCli: z.string().default(''),
+  cardsEnabled: z.boolean().default(false),
+  draftsEnabled: z.boolean().default(false),
+  draftChats: z.array(z.object({ chatId: z.string().regex(/^oc_[a-zA-Z0-9]+$/) }).strict()).max(3).default([]),
+  draftDailyLimit: z.number().int().min(1).max(10).default(3),
   readPageSize: z.number().int().min(1).max(50).default(20),
   linkTimeoutMs: z.number().int().min(1).max(90000).default(5000),
   chats: z.array(z.object({ chatId: z.string().regex(/^oc_[a-zA-Z0-9]+$/), name: z.string().trim().max(60).optional(), listen: z.enum(['mentions', 'all']) }).strict())
     .refine(chats => new Set(chats.map(chat => chat.chatId)).size === chats.length, 'Duplicate chat IDs')
     .default([]),
   directMessages: z.boolean().default(true),
+  ownerOnly: z.boolean().default(false),
   otherChats: z.enum(['none', 'mentions']).default('none'),
 }).strict()
 export type FeishuConfig = z.infer<typeof FeishuConfigSchema>
@@ -34,7 +42,21 @@ export const feishuKind: SourceKind<FeishuConfig> = {
   title: { zh: '飞书', en: 'Feishu' },
   description: { zh: '接收下列群和私聊中发给机器人的消息，补收群历史并轮询订阅的线程。', en: 'Receives messages to the bot in these chats and direct messages, recovers chat history and polls subscribed Threads.' },
   schema: FeishuConfigSchema,
+  actorAllowed: (actor, config, allowed) => !config.ownerOnly || allowed.some(person => person.id === actor.id),
   fields: [
+    { key: 'cardsEnabled', type: 'switch', advanced: true, label: { zh: '交互卡片', en: 'Interactive cards' },
+      hint: { zh: '需在应用回调配置中订阅 card.action.trigger；仅真实所有者可点击，旧版本操作失效。', en: 'Requires card.action.trigger in app callback configuration; only the real owner can act.' } },
+    { key: 'draftsEnabled', type: 'switch', advanced: true, label: { zh: '受控静默起草', en: 'Controlled quiet drafts' },
+      hint: { zh: '仅 observe 模式、office-summary 规则通过后的本人纯文本总结；无工具、无群回复、无自动邮件。', en: 'Only self-contained owner summaries accepted by office-summary in observe mode. No tools or delivery.' } },
+    { key: 'draftChats', type: 'rows', advanced: true, label: { zh: '允许静默起草的群', en: 'Quiet draft chats' },
+      columns: [{ key: 'chatId', type: 'text', label: { zh: '群 ID', en: 'Chat ID' }, pattern: 'oc_[a-zA-Z0-9]+' }] },
+    { key: 'draftDailyLimit', type: 'number', advanced: true, min: 1, max: 10, label: { zh: '静默起草每日次数上限', en: 'Daily quiet draft attempts' } },
+    { key: 'mailProvider', type: 'select', advanced: true, label: { zh: '邮件服务', en: 'Mail service' },
+      options: [{ value: 'feishu', label: { zh: '飞书企业邮箱', en: 'Feishu enterprise mail' } }, { value: '163', label: { zh: '163 个人邮箱', en: '163 personal mail' } }] },
+    { key: 'smtpCli', type: 'text', advanced: true, label: { zh: '163 邮箱桥接命令', en: '163 mail bridge command' },
+      hint: { zh: '指向本机配置的 scripts/personal-mail；授权码只由该命令读取，不填写到此处。', en: 'Path to the locally configured scripts/personal-mail; never put the authorization code here.' } },
+    { key: 'mailCli', type: 'text', advanced: true, label: { zh: '邮箱用户 CLI（可选）', en: 'Mail user CLI (optional)' },
+      hint: { zh: '独立的邮箱用户身份命令；不填则不连接邮箱。机器人 CLI 继续只使用 bot 身份。', en: 'Separate user-identity mail CLI. Empty disables mail; the bot CLI continues using only the bot identity.' } },
     { key: 'cli', type: 'text', label: { zh: '机器人的 lark-cli', en: 'Bot lark-cli' },
       hint: { zh: '命令名或绝对路径，指向只允许机器人身份（strict mode bot）的 lark-cli 配置；执行器以 lark-cli 调用它。保存时读取应用和机器人，然后重启 dsh-superagent。', en: 'A command name or absolute path of a lark-cli configuration that allows only the bot identity (strict mode bot); the Executor calls it as lark-cli. Saving reads the app and the bot, then restarts dsh-superagent.' } },
     { key: 'chats', type: 'rows', label: { zh: '接收的群', en: 'Chats' },
@@ -46,11 +68,14 @@ export const feishuKind: SourceKind<FeishuConfig> = {
     { key: 'otherChats', type: 'select', label: { zh: '其他群', en: 'Other chats' }, options: [{ value: 'none', label: { zh: '不接收', en: 'Not received' } }, { value: 'mentions', label: { zh: '仅 @', en: '@ only' } }],
       hint: { zh: '机器人已加入、但没列在上面的群。“仅 @”接收那里 @ 机器人的消息；谁的消息能发起工作看策略里的准入。', en: 'Chats the bot has joined that are not listed above. "@ only" receives messages there that mention the bot; whose messages may originate work is the Policy\'s admission.' } },
     { key: 'directMessages', type: 'switch', label: { zh: '接收私聊', en: 'Direct messages' } },
+    { key: 'ownerOnly', type: 'switch', label: { zh: '仅名单内用户可触发任务或追加要求', en: 'Only listed users may trigger or continue tasks' },
+      hint: { zh: '个人模式建议开启。其他人的消息不唤醒已有任务；已授权群内的讨论仍可作为资料读取。', en: 'Recommended for personal use. Other senders cannot wake subscribed tasks; authorized group discussion remains source material.' } },
     { key: 'readPageSize', type: 'number', advanced: true, min: 1, max: 50, label: { zh: '每页消息数', en: 'Messages per page' }, hint: { zh: '智能体读取线程和群历史时，每页的消息数。', en: 'Messages per page when agents read Threads and chat history.' } },
     { key: 'linkTimeoutMs', type: 'number', advanced: true, min: 1, max: 90000, label: { zh: '原消息链接的查询时限 / 毫秒', en: 'Original message link time limit / ms' },
       hint: { zh: '查询原消息链接最多等待的时间；超时后智能体改为直接读取原消息。', en: 'How long to wait for an original message\'s link; after that, agents read the message itself.' } },
   ],
-  health: ['feishu', 'history'],
+  health: ['feishu', 'history', 'cards'],
+  activeHealth: config => config.cardsEnabled ? ['feishu', 'history', 'cards'] : ['feishu', 'history'],
   scope({ meta }, config) {
     if (meta.direct === true) return config.directMessages ? { listened: true, observed: false, row: 'direct' } : { listened: false, reason: 'direct_messages_not_allowed' }
     const chat = config.chats.find(item => item.chatId === meta.chatId)

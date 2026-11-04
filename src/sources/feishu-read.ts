@@ -19,7 +19,7 @@ const messageSchema = z.object({
   sender: z.object({ id: z.string(), name: z.string().optional(), open_bot_id: z.string().optional(), sender_type: z.string() }),
   create_time: z.string(), update_time: z.string().optional(), updated: z.boolean().optional(), deleted: z.boolean().optional(),
   mentions: z.array(z.object({ id: z.string(), name: z.string().optional(), key: z.string().optional() })).optional(),
-  message_app_link: z.string().optional(), thread_id: z.string().optional(), root_id: z.string().optional(), parent_id: z.string().optional(),
+  message_app_link: z.string().optional(), thread_id: z.string().optional(), root_id: z.string().optional(), parent_id: z.string().optional(), reply_to: z.string().optional(),
 })
 export type FeishuMessage = z.infer<typeof messageSchema>
 /** A topic page; messages are validated individually so an unreadable item is skipped alone and counted. */

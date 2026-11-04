@@ -8,7 +8,17 @@ dsh-superagent is a proactive coding agent for one GitHub repository, packaged a
 
 It is also a way of working with an agent: **take as little human attention as possible, and give as much value as possible.** An agent that can act for a whole team can also waste a whole team's attention, so it acts only when asked or when a rule the team wrote allows it, and speaks only when someone must act or can use a result. [docs/000-philosophy.md](docs/000-philosophy.md) explains the principle and what it asks of the operator.
 
+## Personal assistant fork
+
+This fork extends the prototype toward a single-user personal assistant for everyday office work, with Feishu integration and user intervention. See [project scope](docs/PROJECT.md), [planned work and principles](docs/ROADMAP.md), and [development instructions](AGENTS.md). Team collaboration and cross-instance A2A are deferred.
+
+The implementation supports Feishu-only setup, office summaries, exact CSV aggregation with source snapshots, and task continuation and result delivery. Personal deployments have durable task pause and managed handover controls; these are not an OS sandbox. Owner-authenticated private task lists, saved reports and TXT exports have passed real message acceptance. New work adds immutable report versions, source hashes, owner edits with conflict checks, quoted-message controls and mail confirmation, and optional tool-free private summary drafts with bounded budgets. Card 2.0 rendering and callback authorization are implemented, but the active app's pending publication currently blocks adding the required callback; buttons remain disabled. Mail supports owner-reviewed reports through Feishu or a private 163 SMTP bridge. The current 163 deployment has passed private preview, explicit confirmation, SMTP acceptance and user-confirmed mailbox receipt; enterprise-mail sending is deferred. See the [chat commands and limits](docs/FEISHU_ASSISTANT.md), [acceptance evidence](docs/PERSONAL_ACCEPTANCE.md), [personal setup guide](docs/PERSONAL_SETUP.md) and [Feishu product plan](docs/FEISHU_PRODUCT.md). Loom now offers default/per-task delivery: a fixed report file to Feishu, local retention, or owner-authorized mail to the verified bound mailbox. Explicit task-local Markdown/text reports are snapshotted; arbitrary workspace attachments remain deferred. Original group threads and on-demand private queries remain the primary interaction. A standalone Feishu workspace, arbitrary workspace-file retrieval, live collaborative merging and content-filtered email rules are deferred.
+
 ## Setup
+
+The supplied Loom UI is available as a local personal workspace backed by this same Runtime. Build and access instructions: [Loom integration](docs/LOOM_SETUP.md).
+The Linux desktop client connects to that same personal runtime, with an independent window, tray and local connection guide. Build and installation: [Loom Desktop](docs/DESKTOP.md).
+Its first-run wizard can also prepare an independent assistant using the existing local engine: model verification, bot credentials, owner/chat scope and explicit startup. It does not import the existing assistant's credentials or history, and checks for duplicate bot listeners. Installing all dependencies on a fresh machine remains separate.
 
 Setup has many steps, so an agent does it with you. Ask your coding agent:
 

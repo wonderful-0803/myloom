@@ -1,0 +1,17 @@
+# Merge these rows into the dedicated profile's cordis.patch.yml.
+# Store the API key through that Harness home's credentials service, never here.
+- id: llm-pi-ai
+  config:
+    providers:
+      dashscope:
+        displayName: 阿里百炼
+        api: openai-completions
+        baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
+        apiKeyEnv: DASHSCOPE_API_KEY
+        models:
+          - id: deepseek-v4.1-flash-1017
+            name: deepseek-v4.1-flash-1017
+- id: agent-default-model
+  config:
+    provider: dashscope
+    model: deepseek-v4.1-flash-1017

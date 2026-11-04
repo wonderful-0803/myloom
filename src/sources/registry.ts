@@ -121,13 +121,16 @@ export class SourceRegistry implements SourceScope {
       },
     }
   }
-  scope(input: { source: string; meta: Record<string, unknown> }, settings = this.settings()): ScopeResult {
+  scope(input: { source: string; meta: Record<string, unknown>; actor?: Trigger['actor'] }, settings = this.settings()): ScopeResult {
     const kind = this.kinds.get(input.source)
     const stored = settings.sources[input.source]
     // Without its kind plugin the stored scope cannot be evaluated, so a configured Source whose plugin is missing listens to nothing.
     if (!kind) return stored ? { listened: false, reason: 'source_not_installed' } : { listened: true, observed: false }
     const instance = this.resolve(kind, stored)
     if (!instance.enabled) return { listened: false, reason: 'source_disabled' }
+    if (input.actor && kind.actorAllowed && !kind.actorAllowed(input.actor, instance.config, settings.policy.sources[input.source]?.allowed ?? [])) {
+      return { listened: false, reason: 'sender_not_allowed' }
+    }
     return kind.scope ? kind.scope({ meta: input.meta }, instance.config) : { listened: true, observed: false }
   }
   /** Falls back to schema defaults and disables the instance when stored configuration fails validation. */

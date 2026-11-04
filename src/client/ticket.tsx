@@ -1,5 +1,6 @@
 /** Ticket detail page: stage and actions, Mandate details, undelivered/delivered Inputs, subscribed Threads, and Assignments. */
 import { useState, type ReactNode } from 'react'
+import type { ControlAction, TaskControlState } from '../app/task-control.ts'
 import { ApiError, usePoll, type TicketPageView } from './api.ts'
 import { DisclosureRow, Dot, Icon, Tag, type IconName } from './controls.tsx'
 import { decisionMark, reportDot, ticketMark } from './marks.ts'
@@ -105,6 +106,44 @@ function MandateDetails({ ticket, actor }: { ticket: TicketPageView; actor: stri
   </Section>
 }
 
+function TaskControl({ id, control, changed }: { id: string; control: TaskControlState; changed: () => Promise<void> }) {
+  const { t, call } = usePanel()
+  const [note, setNote] = useState('')
+  const unknown = control.operations.filter(item => item.status === 'unknown')
+  const actions: Exclude<ControlAction, 'resolve'>[] = control.mode === 'agent' ? ['pause', 'takeover'] : control.mode === 'paused'
+    ? ['resume', 'takeover'] : control.mode === 'human' ? ['return'] : control.detail
+      ? [control.mode === 'pausing' ? 'pause' : 'takeover'] : []
+  const change = async (action: ControlAction) => {
+    await call('POST tickets/:id/control', { id, body: { action, revision: control.revision,
+      ...action === 'resolve' ? { resolution: { ids: unknown.map(item => item.id), note } } : {} } })
+    setNote(''); await changed()
+  }
+  return <Section title={t('taskControl')} icon="user">
+    <p role="status"><Tag tone={control.mode === 'agent' ? 'info' : 'warning'}>{t(`control.${control.mode}`)}</Tag></p>
+    <Hint>{t('controlScope')}</Hint>
+    {(control.mode === 'pausing' || control.mode === 'taking_over') && <Hint>{t('controlDraining')}</Hint>}
+    {control.detail && <Hint>{control.detail}</Hint>}
+    {control.operations.length > 0 && <ul className="dt-plain-list">{control.operations.map(item => <li key={item.id}>
+      <code>{item.name}</code> · {t(item.status === 'unknown' ? 'controlUnknown' : 'controlInFlight')} · <When at={item.startedAt} />
+    </li>)}</ul>}
+    <div className="dt-banner-actions">{actions.map(action => <ConfirmButton key={action} variant="outline"
+      label={t(control.mode === 'pausing' || control.mode === 'taking_over' ? 'controlRetry' : `controlAction.${action}`)}
+      title={t(`controlAction.${action}`)} message={t(`controlConfirm.${action}`)}
+      onConfirm={() => change(action)} />)}</div>
+    {unknown.length > 0 && <div className="dt-field">
+      <label>{t('controlReview')}<textarea className="dt-input" value={note} onChange={event => setNote(event.target.value)} /></label>
+      <Hint>{t('controlReviewHint')}</Hint>
+      {note.trim().length >= 10 && <ConfirmButton variant="outline" label={t('controlResolve')} title={t('controlResolve')}
+        message={t('controlResolveConfirm', { count: unknown.length })} onConfirm={() => change('resolve')} />}
+    </div>}
+    {control.history.length > 0 && <Details icon="history" title={t('controlHistory')}>
+      <ul className="dt-plain-list">{control.history.slice().reverse().map((item, index) => <li key={index}>
+        <When at={item.at} /> · {item.action}{item.note && <p>{item.note}</p>}
+      </li>)}</ul>
+    </Details>}
+  </Section>
+}
+
 export function TicketPage({ id }: { id: string }) {
   const { t, call } = usePanel()
   const { data, error, reload } = usePoll(() => call('GET tickets/:id', { id }), [id])
@@ -153,6 +192,7 @@ export function TicketPage({ id }: { id: string }) {
     {data.deliveryError && <p className="dt-banner dt-danger dt-mono">
       <span className="dt-banner-label">{t('deliveryFailedPrefix')}</span>{data.deliveryError}
     </p>}
+    {data.control && <TaskControl key={id} id={id} control={data.control} changed={reload} />}
     <MandateDetails ticket={data} actor={actor} />
     {undelivered.length > 0 && <Section title={t('undeliveredInputs')} count={undelivered.length}>
       <Hint>{data.deliveryError ? t('inputRetryHint') : data.paused ? t('inputPausedHint') : t('inputWaitingHint')}</Hint>

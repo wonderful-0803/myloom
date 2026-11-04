@@ -3,17 +3,22 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
+import { readFile } from 'node:fs/promises'
+import { packagePath } from '../infra/paths.ts'
+import { LoomError, type LoomWorkspace } from './loom.ts'
+import { DelegationError } from './delegations.ts'
 import { THREAD_FILTERS, TICKET_FILTERS, type Api, type ApiResponse, type RouteParams } from './api.ts'
 import { sourceSkills } from './context.ts'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
 import { PromptConflict, SKILL_NAME, SKILL_PREFIX, TEAM_SECTIONS, builtInBase, builtInParts, defaultPrompts, savePrompts, type Prompts }
   from './prompts.ts'
 import { policyVersion } from '../policy.ts'
-import { SettingsConflict, type Settings } from './settings.ts'
+import { SettingsConflict, SettingsPermissionError, type Settings } from './settings.ts'
 import { SetupError, type SetupProblem } from '../setup.ts'
 import { UserError, type EngineForPeople, type Ticket } from '../core/index.ts'
 import type { Deployment, Machine } from '../deployment.ts'
 import type { DshExecutor } from '../executor/dsh.ts'
+import { ControlConflict, type TaskControls } from './task-control.ts'
 import type { Health } from '../sources/host.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
 import type { Sessions } from './sessions.ts'
@@ -38,6 +43,8 @@ export interface HttpHost {
   readonly settings: Pick<Settings, 'view' | 'save' | 'pause' | 'sync' | 'refreshLabels'>
   readonly engine: EngineForPeople
   readonly executor: Pick<DshExecutor, 'activeCount'>
+  readonly controls?: TaskControls
+  readonly loom?: LoomWorkspace
   readonly health: Record<string, Health>
   readonly machine: Machine
   readonly masterId: string
@@ -79,6 +86,9 @@ export function sameOrigin(req: Pick<IncomingMessage, 'headers'>, port: number):
 }
 /** Maps errors to HTTP status codes and structured payloads that the panel localizes in the interface language. */
 function failure(error: unknown): [number, Record<string, unknown>] {
+  if (error instanceof DelegationError) return [error.status, { error: error.message }]
+  if (error instanceof SettingsPermissionError) return [400, { error: error.message }]
+  if (error instanceof LoomError) return [error.status, { error: error.message }]
   if (error instanceof z.ZodError) {
     const issues = error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message }))
     return [400, { error: `Invalid settings: ${issues.map(issue => issue.path).join(', ')}`, issues }]
@@ -87,6 +97,7 @@ function failure(error: unknown): [number, Record<string, unknown>] {
   if (error instanceof RouteError) return [error.status, { error: error.message }]
   if (error instanceof UserError) return [error.missing ? 404 : 400, { error: error.message, code: error.code, values: error.values }]
   if (error instanceof SettingsConflict || error instanceof PromptConflict) return [409, { error: error.message }]
+  if (error instanceof ControlConflict) return [409, { error: error.message }]
   return [500, { error: error instanceof Error ? error.message : String(error) }]
 }
 
@@ -98,7 +109,7 @@ function setupView(runtime: HttpHost) {
   const resolved = runtime.configured() ? runtime.deployment : undefined
   return {
     machine: machineView(runtime.machine), problem: runtime.setupProblem ?? null, feishuProblem: runtime.feishuProblem ?? null,
-    accounts: resolved ? { repository: resolved.repository, agent: resolved.github.login, feishu: resolved.feishu ? { appId: resolved.feishu.appId, brand: resolved.feishu.brand, botId: resolved.feishu.botId, name: resolved.feishu.name } : null } : null,
+    accounts: resolved ? { repository: resolved.repository, agent: resolved.github?.login ?? '', feishu: resolved.feishu ? { appId: resolved.feishu.appId, brand: resolved.feishu.brand, botId: resolved.feishu.botId, name: resolved.feishu.name } : null } : null,
   }
 }
 /** Build the `/orchestrator/api/state` response consumed by the management panel and `scripts/dsh-superagent status` (`docs/006-deployment.md`). */
@@ -116,7 +127,8 @@ export type StateView = ReturnType<typeof stateView>
 function ticketPage(runtime: HttpHost, id: string) {
   const detail = ticketDetail(views(runtime), id), ticket = runtime.store.tickets.get(id)
   if (!detail || !ticket) throw new RouteError(404, 'Ticket not found')
-  return { ...detail, environment: runtime.configured() ? runtime.ticketEnvironment(ticket) : [] }
+  return { ...detail, ...(runtime.controls && runtime.store.settings().sources.github?.enabled === false
+    ? { control: runtime.controls.view(id) } : {}), environment: runtime.configured() ? runtime.ticketEnvironment(ticket) : [] }
 }
 export type TicketPageView = ReturnType<typeof ticketPage>
 function promptsView(runtime: HttpHost, revision: number | undefined, offset: number) {
@@ -190,6 +202,18 @@ function routes(runtime: HttpHost): Routes {
       return ticketList(views(runtime), state, offset, limit)
     },
     'GET tickets/:id': ({ params }) => ticketPage(runtime, params.id),
+    'GET tickets/:id/control': ({ params }) => {
+      ticket(params.id)
+      if (!runtime.controls) throw new RouteError(400, 'Task controls are not installed')
+      return runtime.controls.view(params.id)
+    },
+    'POST tickets/:id/control': async ({ params, body }) => {
+      ticket(params.id)
+      if (!runtime.controls || store.settings().sources.github?.enabled !== false) throw new RouteError(400, 'Task controls currently require the Feishu-only personal deployment')
+      const request = z.object({ action: z.enum(['pause', 'resume', 'takeover', 'return', 'resolve']), revision: z.number().int().nonnegative(),
+        resolution: z.object({ ids: z.array(z.string()).min(1), note: z.string().trim().min(10).max(500) }).optional() }).strict().parse(await body())
+      return runtime.controls.change(params.id, request.action, request.revision, request.resolution)
+    },
     'POST tickets/:id/retry': ({ params }) => { const id = ticket(params.id); runtime.engine.retryTicket(id); return { retried: true } },
     'POST tickets/:id/stop': ({ params }) => { const id = ticket(params.id); runtime.engine.stopTicket(id); return { stopped: true } },
     'POST executor/pause': async ({ body }) => runtime.settings.pause(z.object({ paused: z.boolean() }).parse(await body()).paused, 'panel'),
@@ -233,10 +257,34 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
   const disposers = [
     ctx.webServer.register({ kind: 'prefix', path: '/orchestrator', handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
+      if (url.pathname === '/orchestrator/loom' || url.pathname.startsWith('/orchestrator/loom/')) {
+        const host = req.headers.host
+        if (!['GET', 'HEAD'].includes(req.method ?? '') || ![`127.0.0.1:${ctx.webServer.port}`, `localhost:${ctx.webServer.port}`].includes(host ?? '')) {
+          json(res, 403, { error: 'Loopback workspace required' }); return
+        }
+        if (url.pathname === '/orchestrator/loom') { res.writeHead(302, { location: '/orchestrator/loom/' }); res.end(); return }
+        const asset = url.pathname.slice('/orchestrator/loom/'.length)
+        const file = !asset || url.pathname === '/orchestrator/loom' ? 'index.html' : /^assets\/[a-zA-Z0-9_.-]+\.(?:js|css)$/.test(asset) ? asset : undefined
+        if (!file) { res.writeHead(404); res.end(); return }
+        try {
+          const bytes = await readFile(packagePath('loom', 'dist', 'client', file))
+          res.writeHead(200, { 'content-type': file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8',
+            'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY',
+            'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" })
+          res.end(req.method === 'HEAD' ? undefined : bytes)
+        } catch { json(res, 404, { error: 'Loom 界面尚未构建，请在 loom 目录运行 pnpm build。' }) }
+        return
+      }
       if (!url.pathname.startsWith('/orchestrator/api/')) { res.writeHead(404); res.end(); return }
       if (!sameOrigin(req, ctx.webServer.port)) { json(res, 403, { error: 'Same-origin management request required' }); return }
       try {
         await runtime.ready
+        const segments = url.pathname.slice('/orchestrator/api/'.length).split('/')
+        if (segments[0] === 'loom') {
+          if (!runtime.loom) throw new RouteError(404, 'Loom workspace is not installed')
+          const path = segments.slice(1).filter(Boolean).map(decoded)
+          json(res, 200, await runtime.loom.handle(req.method ?? 'GET', path, Object.fromEntries(url.searchParams), () => readBody(req))); return
+        }
         const route = match(table, req.method ?? 'GET', url.pathname.slice('/orchestrator/api/'.length).split('/'))
         if (!route) throw new RouteError(404, 'Unknown operation')
         const query = Object.fromEntries(url.searchParams)

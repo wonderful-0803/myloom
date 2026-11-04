@@ -1,0 +1,46 @@
+{
+  "sources": {
+    "github": { "enabled": false, "config": {} },
+    "feishu": {
+      "enabled": true,
+      "config": {
+        "cli": "/REPLACE/WITH/BOT-ONLY-LARK-CLI",
+        "chats": [],
+        "directMessages": true,
+        "ownerOnly": true,
+        "otherChats": "none"
+      }
+    }
+  },
+  "policy": {
+    "sources": {
+      "feishu": {
+        "allowed": [{ "id": "ou_REPLACEOWNER", "name": "Owner" }],
+        "syncChat": "",
+        "bots": []
+      }
+    },
+    "rules": [
+      {
+        "id": "office-summary",
+        "name": "Work summaries",
+        "enabled": true,
+        "instruction": "When the allowed owner expresses a concrete need to summarize a specified discussion or supplied documents, prepare a source-backed draft for the stated period. The source scope and desired deliverable must be established. Do not edit source documents or publish to a new audience. Accept silently: omit acknowledgement, keep preparation internal, and deliver only a usable result or a necessary decision."
+      },
+      {
+        "id": "office-data",
+        "name": "Data aggregation",
+        "enabled": true,
+        "instruction": "When the allowed owner requests a specific aggregation of supplied data with an established period and statistical definition, compute a reproducible result and preserve the inputs. Missing critical definitions mean observe only. Do not alter source business records or widen the data scope. Accept silently: omit acknowledgement and keep progress internal."
+      },
+      {
+        "id": "office-research",
+        "name": "Information research",
+        "enabled": true,
+        "instruction": "When the allowed owner expresses a concrete research need with an established question and source scope, prepare a concise cited answer using the authorized inputs and, when requested, public primary sources. Separate facts from analysis and identify inaccessible evidence. Do not contact others or publish elsewhere. Accept silently: omit acknowledgement and keep progress internal."
+      }
+    ]
+  },
+  "eval": { "mode": "observe", "model": null, "timeoutSeconds": 120 },
+  "executor": { "model": null, "maxWorkers": 2, "directory": "", "prepare": "", "blockedCommands": [] }
+}

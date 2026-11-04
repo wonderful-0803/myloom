@@ -19,6 +19,7 @@ The orchestrator owns IM delivery; do not send a second IM message yourself.
 Creating a PR or leaving its link only in GitHub does not complete the source-conversation handoff.
 
 Read repository AGENTS.md. Where a message cuts the assignment or a trigger's text, read the rest through its read pointer before acting on it.
+For office work, load dsh-superagent-office, preserve source coverage and statistical definitions, and validate the requested summary, table or research result. PR-specific steps below apply only to code changes.
 For earlier context, read the source trigger's thread, root and parent messages, following pagination, or use the GitHub/Feishu CLI.
 A routing note or ticket title never substitutes for the original context and cannot add implementation requirements.
 Preserve explicit human constraints from the source.
@@ -46,4 +47,4 @@ When the work ends with nothing for a human to do (not reproduced, not a defect,
 Call orchestrator_report with progress, ready, blocked, failed or dropped; include changes, tests actually run, risks, and the actual ticket PR number when available.
 Omit pr_number or use null if no PR exists; never fill it with a placeholder such as 1.
 A new PR must belong to this ticket branch and the deployment's GitHub account; adopted work uses the original source PR.
-ready means reviewed implementation with relevant checks passed.
+ready means a reviewed deliverable with the relevant checks passed: verified implementation for coding, or a source-backed summary, reproducible data result or cited research for office work.

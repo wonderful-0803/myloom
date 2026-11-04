@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
-import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
+import { Engine, key, liveTicket, reasonText, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
 import { allowedSender, settingsPolicy } from '../policy.ts'
 import { SourceRegistry } from '../sources/registry.ts'
 import { Commands } from '../infra/commands.ts'
@@ -36,6 +36,16 @@ import { eventNotice, followupNotice } from './notices.ts'
 import { pullEndNotices } from '../sources/github-pull.ts'
 import { HealthBoard } from '../infra/health.ts'
 import { Outbox } from './outbox.ts'
+import { TaskControls } from './task-control.ts'
+import { TaskProgress } from './task-progress.ts'
+import { ResultDelivery } from './result-delivery.ts'
+import { CodexDaily } from './codex-daily.ts'
+import { CodexHistory } from './codex-history.ts'
+import { FeishuAssistant } from './feishu-assistant.ts'
+import { Artifacts } from './artifacts.ts'
+import { LoomWorkspace } from './loom.ts'
+import { Delegations } from './delegations.ts'
+import { QuietDrafts } from './quiet-drafts.ts'
 import { Passes } from './passes.ts'
 import { Setup } from './setup.ts'
 import { feishuSettings } from '../sources/feishu.ts'
@@ -68,6 +78,16 @@ export class Runtime extends Service implements SourceHost {
   readonly executor: DshExecutor
   readonly assessor: MasterAssessor
   readonly outbox: Outbox
+  readonly controls: TaskControls
+  readonly progress: TaskProgress
+  readonly resultDelivery: ResultDelivery
+  readonly codexHistory: CodexHistory
+  readonly codexDaily: CodexDaily
+  readonly feishuAssistant: FeishuAssistant
+  readonly artifacts: Artifacts
+  readonly quietDrafts: QuietDrafts
+  readonly loom: LoomWorkspace
+  readonly delegations: Delegations
   readonly engine: Engine
   readonly passes: Passes
   readonly ready: Promise<void>
@@ -96,11 +116,27 @@ export class Runtime extends Service implements SourceHost {
     try {
       const report = (error: unknown) => { ctx.logger.warn('dsh-superagent: %s', String(error)) }
       const store = opened = this.store = new Store(join(machine.stateDir, 'orchestrator.sqlite'), report)
+      const controls = this.controls = new TaskControls({ store,
+        canResume: id => {
+          const ticket = store.tickets.get(id)
+          return !ticket || ticket.mandate.strength !== 'inferred' || !ticket.mandate.basis.rules?.some(rule => rule.startsWith('loom-delegate-'))
+            || settingsPolicy(store.settings(), this.sources).revalidate(ticket.mandate)
+        },
+        quiesce: async id => { this.outbox.hold(id); this.resultDelivery?.hold(id); await this.executor.quiesce(id) },
+        resume: id => {
+          const ticket = store.tickets.get(id)
+          if (ticket && liveTicket(ticket)) {
+            this.engine.note(id, 'Human explicitly returned control. Reread the current files and requirements, preserve human edits, and continue from the current state.')
+            this.executor.resumeTask(id)
+          }
+          this.passes.request()
+        } })
       const setup = this.setup = new Setup({ context: ctx, machine, lifetime: this.lifetime, restart })
       const deployed = () => setup.configured()
         ? environmentOf({ deployment: setup.deployment, sources: this.sources, settings: store.settings() }) : undefined
       const feishu = () => setup.configured() && !!setup.deployment.feishu
-      const prompts = this.prompts = new Prompts(store, () => machine.promptMaxChars.get(), deployed, feishu)
+      const github = () => setup.configured() && !!setup.deployment.github
+      const prompts = this.prompts = new Prompts(store, () => machine.promptMaxChars.get(), deployed, feishu, github)
       const masterId = this.masterId = store.get(KV.runtime.masterId) ?? `orchestrator-${key(machine.stateDir)}`
       store.set(KV.runtime.masterId, masterId)
       const commands = this.commands = new Commands(() => setup.deployment, setup.commandEnvironment, this.lifetime)
@@ -112,30 +148,49 @@ export class Runtime extends Service implements SourceHost {
           .catch(() => { /* sync() records its failure in health. */ })
         return () => {}
       })
+      const artifacts = this.artifacts = new Artifacts({ store, sources, controls })
+      const quietDrafts = this.quietDrafts = new QuietDrafts({ context: ctx, store, sources, effects, artifacts,
+        lifetime: this.lifetime, configured: () => setup.configured() })
       const links: LinkHost = { store, links: this.sourceLinks, commands, sources, lifetime: this.lifetime }
       const link = (trigger: Trigger, signal?: AbortSignal) => sourceLink(links, trigger, signal)
       const environment = (ticket: Ticket) => this.ticketEnvironment(ticket)
       const resources: ResourceHost = { store, pages: new TextCache(4_000_000), prompts, commands, masterId, context: ctx,
         promptVersion: id => this.sessions.promptVersion(id), mayRead: (id, revision) => this.sessions.mayRead(id, revision),
-        feishuPageSize: () => feishuSettings(sources).readPageSize, sourceLink: link }
+        feishuPageSize: () => feishuSettings(sources).readPageSize, sourceLink: link,
+        canReadTrigger: trigger => trigger.source !== 'codex-daily' || artifacts.sourceAllowed(trigger, trigger.actor.id),
+        canReadTicket: ticket => ticket.mandate.actor.source !== 'codex-daily' || artifacts.canReadContext(ticket, ticket.mandate.actor.id) }
       const sessions = this.sessions = new Sessions({ context: ctx, store, prompts, effects, health: board.claim('models'), masterId,
-        lifetime: this.lifetime,
+        lifetime: this.lifetime, controls,
         closing: () => this.closing(), environment,
         tools: (agent, ticket) => ticket ? executorTools(this.toolHost, ticket) : mainTools(this.toolHost, agent) })
-      const policyChanged: EngineForSettings['policyChanged'] = (from, to, effects) => { this.engine.policyChanged(from, to, effects) }
-      this.settings = new Settings({ store, sources, engine: { policyChanged }, health: board, context: ctx, lifetime: this.lifetime, sessions,
+      const revalidateControls = () => {
+        const policy = settingsPolicy(store.settings(), sources)
+        for (const ticket of store.tickets.open()) {
+          if (ticket.mandate.strength === 'inferred' && ticket.mandate.basis.rules?.some(id => id.startsWith('loom-delegate-'))
+            && !policy.revalidate(ticket.mandate) && controls.view(ticket.id).mode === 'agent') controls.change(ticket.id, 'pause', controls.view(ticket.id).revision)
+        }
+      }
+      this.settings = new Settings({ store, sources, engine: { policyChanged: (...args) => this.engine.policyChanged(...args) }, revalidateControls, health: board, context: ctx, lifetime: this.lifetime, sessions,
         sourceHost: this, setup, requestPass: () => { this.passes.request() } })
       this.executor = new DshExecutor({ context: ctx, get engine() { return runtime.engine }, store, effects, health: board.claim('worker'), machine,
-        lifetime: this.lifetime, sessions, closing: () => this.closing(), paused: () => this.paused(), environment, sourceLink: link,
+        lifetime: this.lifetime, controls, sessions, closing: () => this.closing(), paused: () => this.paused(), environment, sourceLink: link,
         repliedTo: trigger => repliedTo({ store, sources }, trigger) })
       this.assessor = new MasterAssessor({ get engine() { return runtime.engine }, commands, get deployment() { return setup.deployment }, effects,
         settings: () => store.settings(), paused: () => this.paused(), threadContext: trigger => sources.threadContext(trigger),
         deliver: (id, text) => sessions.prompt(masterId, id, text, 'steer'), candidateCard: candidate => candidateCard(links, candidate) })
-      const outbox = this.outbox = new Outbox({ store, effects, sources, commands, paused: () => this.paused() })
+      const outbox = this.outbox = new Outbox({ store, effects, sources, commands, controls, paused: () => this.paused(),
+        canDeliver: id => {
+          const ticket = store.tickets.get(id)
+          return !!ticket && (!['feishu', 'codex-daily'].includes(ticket.mandate.actor.source) || artifacts.canReadContext(ticket, ticket.mandate.actor.id))
+        } })
       const { assessor, executor } = this
       const policy = () => settingsPolicy(store.settings(), sources)
       const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor,
         outbox, prepareTicket: (ticket, outcome) => executor.prepare(ticket, outcome), emit: event => {
+          if (event.type === 'decision.recorded') {
+            const decision = store.decisions.get(event.data.decisionId)
+            if (decision) quietDrafts.observe(decision)
+          }
           // Notify the main Session only about domain events it did not initiate itself.
           const notice = this.quiet ? undefined : eventNotice(event, id => store.tickets.get(id))
           if (notice) sessions.notify(...notice)
@@ -153,13 +208,27 @@ export class Runtime extends Service implements SourceHost {
         } })
       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
       const evals = board.claim('evals', { state: 'ready', detail: 'No unavailable Eval in the last hour' })
-      const evaluateDue = () => { engine.evaluateDue(); evals.set(evalsHealth(store)) }
+      const evaluateDue = () => { this.codexDaily?.tick(); engine.evaluateDue(); evals.set(evalsHealth(store)) }
       const passes = this.passes = new Passes({ engine: { receive: trigger => engine.receive(trigger), evaluateDue }, effects,
         health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
+      this.feishuAssistant = new FeishuAssistant({ store, controls, sources, effects, commands, artifacts, quietDrafts, stateDir: machine.stateDir, configured: () => setup.configured() })
+      this.resultDelivery = new ResultDelivery({ store, sources, controls, artifacts, effects, commands, mail: this.feishuAssistant.mail,
+        stateDir: machine.stateDir, paused: () => this.paused() })
+      this.codexHistory = new CodexHistory({ store, lifetime: this.lifetime })
+      this.codexDaily = new CodexDaily({ store, sources, effects, history: this.codexHistory, engine, lifetime: this.lifetime, configured: () => setup.configured(), paused: () => this.paused() })
+      this.delegations = new Delegations({ store, sources, settings: this.settings, codexDaily: this.codexDaily })
+      this.progress = new TaskProgress({ store, controls, inspect: async (id, signal) => {
+        const history = await ctx.sessionController.inspect(workerSessionId(id) as SessionId, signal)
+        return history.events.slice(history.inheritedEventCount ?? 0)
+      } })
+      this.loom = new LoomWorkspace({ store, controls, sources, artifacts, quietDrafts, mail: this.feishuAssistant.mail,
+        delegations: this.delegations, settings: this.settings, progress: this.progress, resultDelivery: this.resultDelivery, codexHistory: this.codexHistory, codexDaily: this.codexDaily,
+        health: () => this.health, configured: () => setup.configured(), deployment: () => setup.deployment })
       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },
         get deployment() { return setup.deployment }, configured: () => setup.configured(),
-        get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => passes.receive(trigger) }
-      this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources,
+        get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => this.receive(trigger),
+        cardAction: event => this.closing() ? 'filtered' : this.feishuAssistant.receiveCard(event) }
+      this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources, controls, artifacts, resultDelivery: this.resultDelivery,
         get github() { return runtime.context({ kind: 'github', health: ['github'] }) },
         requestPass: () => { passes.request() }, sendReplies: () => outbox.sent(),
         quietly: run => { this.quiet++; try { return run() } finally { this.quiet-- } } }
@@ -191,7 +260,10 @@ export class Runtime extends Service implements SourceHost {
     return ticketEnvironment({ deployment, sources, settings: this.store.settings(), ticket, ...trigger ? { trigger } : {} })
   }
   checkSetup(): void { this.setup.check() }
-  receive(trigger: Trigger): ReceiveResult { return this.passes.receive(trigger) }
+  receive(trigger: Trigger): ReceiveResult {
+    if (this.closing()) throw new Error('Orchestrator is stopping')
+    return this.feishuAssistant.receive(trigger) ?? this.passes.receive(trigger)
+  }
   idle(): Promise<void> { return this.passes.idle() }
   pump(): Promise<void> { return this.passes.pump() }
   sendReplies(): Promise<void> { return this.outbox.sent() }
@@ -207,6 +279,7 @@ export class Runtime extends Service implements SourceHost {
     }
     this.sessions.install()
     this.executor.install()
+    this.controls.recover()
     await this.sessions.ensure(this.masterId, this.machine.stateDir, 'dsh-superagent orchestrator', 'orchestrator')
     for (const id of this.settings.syncable()) await this.settings.sync(id).catch(() => { /* sync() records its failure in health. */ })
     // If stop() was called while awaiting setup, session creation, or policy sync, do not start background loops.
@@ -219,7 +292,7 @@ export class Runtime extends Service implements SourceHost {
   private httpHost(): HttpHost {
     const runtime = this
     const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes } = this
-    return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks,
+    return { store, sources, prompts, sessions, settings, engine, executor, controls: this.controls, loom: this.loom, health, machine, masterId, ready, sourceLinks,
       get deployment() { return setup.deployment },
       get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem },
       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),
@@ -238,6 +311,7 @@ export class Runtime extends Service implements SourceHost {
       // The workers' jobs and subagents stop too: their ends would start worker turns without the tool limits released below.
       await this.executor.shutdown()
       this.executor.dispose()
+      this.controls.dispose()
       this.sessions.dispose()
       for (const dispose of this.disposers.reverse()) dispose()
       await this.ctx.sessionPersistence.flush()

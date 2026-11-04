@@ -24,6 +24,7 @@ export interface SourceContextDeps {
   readonly feishuProblem?: SetupProblem | undefined
   /** Hands a Trigger to the Engine and schedules the pass that assesses it. */
   receive(trigger: Trigger): ReceiveResult | Promise<ReceiveResult>
+  cardAction?(event: unknown): ReceiveResult | Promise<ReceiveResult>
 }
 
 /**
@@ -44,6 +45,7 @@ export function sourceContextOf(deps: SourceContextDeps, kind: { kind: string; h
       return instance?.enabled ? instance.config : undefined
     },
     receive: trigger => deps.receive(trigger),
+    cardAction: event => deps.cardAction?.(event) ?? 'filtered',
     atomic: work => store.atomic(work),
     state: {
       get: name => store.get(name),

@@ -66,6 +66,9 @@ export interface ResourceHost {
   promptVersion(sessionId: string): PromptVersion
   /** Whether a Session may read `revision` (the revision it currently runs under or any revision it ran under previously). */
   mayRead(sessionId: string, revision: number): boolean
+  /** Optional source-derived data boundary, including historical snapshots after grant changes. */
+  canReadTrigger?(trigger: Trigger): boolean
+  canReadTicket?(ticket: Ticket): boolean
   feishuPageSize(): number
   sourceLink(trigger: Trigger, signal?: AbortSignal): Promise<{ source_url?: string; source_url_read?: string }>
 }
@@ -117,13 +120,13 @@ async function transcript(host: ResourceHost, ticketId: string) {
 
 const ROUTES: readonly Route[] = [
   ['tickets', read => {
-    const host = main(read), tickets = host.store.tickets.list()
+    const host = main(read), tickets = host.store.tickets.list().filter(ticket => host.canReadTicket?.(ticket) !== false)
     const card = (ticket: Ticket) => ({ ...ticketCard(ticket), ...host.sessions.modelRetry(runningAssignment(ticket) && workerSessionId(ticket.id)) })
     return list(read, (offset, count) => tickets.slice(offset, offset + count).map(card))
   }],
   ['triggers', read => {
-    const { store } = main(read)
-    return list(read, (offset, count) => store.read.recentTriggers(offset, count).map(item => triggerCard(item, store.triggers.disposition(item.id))))
+    const host = main(read), { store } = host
+    return list(read, (offset, count) => store.read.recentTriggers(offset, count).filter(item => host.canReadTrigger?.(item) !== false).map(item => triggerCard(item, store.triggers.disposition(item.id))))
   }],
   ['threads', read => {
     const { store } = main(read)
@@ -140,7 +143,7 @@ const ROUTES: readonly Route[] = [
     }
     const { store } = host
     const { read: _read, tickets: ids, ...card } = threadCard(thread, threadTitle(store, thread))
-    const page = list(read, (offset, count) => store.read.threadPage(thread.key, offset, count).map(triggerLine))
+    const page = list(read, (offset, count) => store.read.threadPage(thread.key, offset, count).filter(item => host.canReadTrigger?.(item) !== false).map(triggerLine))
     // Worker sessions cannot inspect other tickets or decisions on a shared thread.
     if (ticketId) return { ...card, ...page }
     const tickets = ids.flatMap(id => { const found = store.tickets.get(id); return found ? [ticketCard(found)] : [] })
@@ -214,7 +217,7 @@ const ROUTES: readonly Route[] = [
     const ref = feishuRef(found)
     // Redact decision IDs, other tickets, and unreachable neighbour triggers when a worker session reads a trigger.
     const ticket = ticketId ? host.store.tickets.get(ticketId) : undefined
-    const shown = (item: Trigger | undefined) => item && (!ticket || readable(host, ticket, item)) ? item : undefined
+    const shown = (item: Trigger | undefined) => item && host.canReadTrigger?.(item) !== false && (!ticket || readable(host, ticket, item)) ? item : undefined
     const disposition = host.store.triggers.disposition(found.id)
     const visible = disposition && ticket ? { ...disposition, decisionId: undefined, fanout: disposition.fanout.filter(id => id === ticket.id) }
       : disposition
@@ -303,6 +306,12 @@ export async function readResource(host: ResourceHost, resource: string, offset:
   if (!route) throw new Error('Unknown context resource')
   const sessionId = ticketId ? workerSessionId(ticketId) : host.masterId
   const rest = route[0].endsWith('/') ? name.slice(route[0].length) : ''
-  return route[1]({ host, resource: name, rest, offset, sessionId, ...limit ? { limit } : {}, ...ticketId ? { ticketId } : {},
+  const check = () => {
+    if (name.startsWith('trigger/')) { const item = host.store.triggers.get(rest); if (item && host.canReadTrigger?.(item) === false) throw new Error('Source authorization was revoked') }
+    if (name.startsWith('ticket/')) { const item = host.store.tickets.get(rest.split('/')[0]!); if (item && host.canReadTicket?.(item) === false) throw new Error('Task source authorization was revoked') }
+  }
+  check()
+  const result = await route[1]({ host, resource: name, rest, offset, sessionId, ...limit ? { limit } : {}, ...ticketId ? { ticketId } : {},
     ...signal ? { signal } : {} })
+  check(); return result
 }
