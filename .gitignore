@@ -7,3 +7,4 @@ loom/dist/
 loom/loom.db*
 desktop/dist/
 desktop/assets/*.png
+desktop/assets/*.icns

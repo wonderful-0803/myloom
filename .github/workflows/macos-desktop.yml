@@ -1,0 +1,60 @@
+name: Build macOS desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [build/macos-desktop]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24.20.0
+      - name: Install pinned packaging tools
+        run: |
+          npm install --global pnpm@11.7.0 --ignore-scripts
+          pnpm --dir desktop install --frozen-lockfile
+          node -e "if (process.arch !== '${{ matrix.arch }}') process.exit(1)"
+      - name: Verify desktop behavior and package inputs
+        run: pnpm desktop:test
+      - name: Build and verify local signature
+        run: pnpm --dir desktop build:macos ${{ matrix.arch }}
+      - name: Launch the packaged app with an isolated empty first-run profile
+        env:
+          LOOM_MACOS_SMOKE_DIR: ${{ runner.temp }}/loom-macos-smoke
+        run: |
+          unset ELECTRON_RUN_AS_NODE
+          "desktop/dist/macos/Loom-darwin-${{ matrix.arch }}/Loom.app/Contents/MacOS/Loom" --setup-experience
+          node -e "const fs=require('node:fs'); const p=process.env.LOOM_MACOS_SMOKE_DIR+'/macos-launch.json'; const v=JSON.parse(fs.readFileSync(p)); if(!v.nativeElectronLaunch||v.arch!=='${{ matrix.arch }}')process.exit(1)"
+      - name: Save ZIP and verification evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Loom-macos-${{ matrix.arch }}
+          path: |
+            desktop/dist/Loom-*-macos-${{ matrix.arch }}.zip
+            desktop/dist/Loom-*-macos-${{ matrix.arch }}.zip.sha256
+            desktop/dist/Loom-*-macos-${{ matrix.arch }}.zip.json
+            ${{ runner.temp }}/loom-macos-smoke/macos-launch.json
+            ${{ runner.temp }}/loom-macos-smoke/macos-first-run.png
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

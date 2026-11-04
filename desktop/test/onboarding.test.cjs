@@ -52,6 +52,17 @@ test('fresh setup neither imports credentials nor probes or starts a previous as
   assert.equal(setup.view().step, 0); assert.equal(setup.view().model, null); assert.equal(setup.view().bot, null)
   assert.equal(calls.length, 0); assert.equal(requests.length, 0); assert.equal(runtimeCalls.length, 0)
 })
+test('an engine selected by the native picker survives reopening, including spaces, and freezes after preparation', async () => {
+  const item = fixture(), chosen = path.join(item.root, 'chosen engine')
+  fs.cpSync(item.setup.projectRoot, chosen, { recursive: true })
+  item.setup.selectProject(chosen)
+  const restored = new Onboarding({ directory: path.join(item.root, 'prefs'), dataRoot: path.join(item.root, 'data'), projectRoot: '/missing' })
+  assert.equal(restored.projectRoot, fs.realpathSync(chosen)); assert.equal(restored.environment()[0].available, true)
+  assert.throws(() => item.setup.selectProject(path.join(item.root, 'missing')), /构建/)
+  await item.setup.action('prepare')
+  assert.throws(() => item.setup.selectProject(chosen), /准备环境前/)
+  assert.ok(item.calls.some(call => call.args.includes('link:' + chosen)))
+})
 test('prepares an independent home, verifies actual API contracts, keeps secrets out of views and argv, and starts only on reviewed consent', async () => {
   const item = fixture(); await ready(item)
   const { setup, calls, requests, runtimeCalls } = item

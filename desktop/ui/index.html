@@ -21,8 +21,8 @@
         <div class="card-heading"><h2>先准备本机环境</h2><span class="version">01 / 05</span></div>
         <p class="card-description">为这次配置创建独立的执行环境、凭据和任务库。已有助手继续运行，配置不会自动导入。</p>
         <div id="setup-environment" class="setup-environment"></div>
-        <details class="setup-help"><summary>如果有环境依赖缺失</summary><p>本轮向导使用这台 Linux 上已有的 Loom 办公引擎、Node、DeepSeek Harness、Python、tmux 和飞书 CLI。全新电脑的一键安装尚未包含在安装包中；补齐缺失项后可重新检查。</p></details>
-        <div class="actions"><button id="setup-prepare" class="primary">准备运行环境 →</button><button id="setup-check">重新检查</button></div>
+        <details class="setup-help"><summary>如果有环境依赖缺失</summary><p>向导使用本机已有的 Loom 办公引擎、Node、DeepSeek Harness、Python、tmux 和飞书 CLI。可选择已完成构建的源码目录；全新电脑的一键依赖安装尚未包含在安装包中。补齐缺失项后可重新检查。</p></details>
+        <div class="actions"><button id="setup-prepare" class="primary">准备运行环境 →</button><button id="setup-choose-engine">选择办公引擎目录</button><button id="setup-check">重新检查</button></div>
         <p class="setup-note">首次准备可能下载组件。只写入新环境，不自动启动任务或接收飞书消息。</p>
       </section>
       <form class="setup-page" data-step="1" id="setup-model-form" hidden>

@@ -1,5 +1,5 @@
 'use strict'
-const { app, BrowserWindow, WebContentsView, ipcMain, Menu, Tray, Notification, dialog, shell, session } = require('electron')
+const { app, BrowserWindow, WebContentsView, ipcMain, Menu, Tray, Notification, dialog, shell, session, nativeImage } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
@@ -7,11 +7,15 @@ const { spawn } = require('node:child_process')
 const { RuntimeLink } = require('./runtime.cjs')
 const { Onboarding } = require('./onboarding.cjs')
 const policy = require('./policy.cjs')
+const platform = require('./platform.cjs')
+
+process.env.PATH = platform.commandEnvironment().PATH
 
 app.setName('luxi-loom')
 const setupExperience = process.argv.includes('--setup-experience')
 const setupSmoke = process.env.LOOM_DESKTOP_SETUP_SMOKE_DIR
-if (setupExperience) app.setPath('userData', setupSmoke ? path.join(path.resolve(setupSmoke), 'preferences') : path.join(app.getPath('appData'), 'luxi-loom-first-run'))
+const macSmoke = process.env.LOOM_MACOS_SMOKE_DIR
+if (setupExperience) app.setPath('userData', setupSmoke || macSmoke ? path.join(path.resolve(setupSmoke || macSmoke), 'preferences') : path.join(app.getPath('appData'), 'luxi-loom-first-run'))
 // Ozone can initialize before main.cjs. Appending this switch here is too late on
 // Wayland hosts: Electron may report a visible window without a mapped X window.
 // The launcher supplies it at process startup; direct binary launches relaunch once.
@@ -23,7 +27,7 @@ if (process.platform === 'linux' && process.env.DISPLAY && app.commandLine.getSw
 app.enableSandbox()
 // Office UI does not need GPU acceleration; software rendering avoids Linux driver incompatibilities without disabling the sandbox.
 app.disableHardwareAcceleration()
-if (process.platform !== 'linux') { app.whenReady().then(() => { dialog.showErrorBox('Loom', '此版本仅支持 Linux。本机执行端尚未完成其他系统的适配。'); app.quit() }); return }
+if (!['linux', 'darwin'].includes(process.platform)) { app.whenReady().then(() => { dialog.showErrorBox('Loom', '此版本支持 Linux 和 macOS。'); app.quit() }); return }
 if (!app.requestSingleInstanceLock()) { app.quit(); return }
 
 let window, workspace, tray, trayMenu, trayState, runtime, onboarding, projectRootHint, quitting = false, timer, previous, statusOpen = false, refreshing = false, selectedPage = 'overview', requestedWorkspace = '', workspaceLoaded = false
@@ -35,8 +39,8 @@ const smokeDirectory = process.env.LOOM_DESKTOP_SMOKE_DIR
 function link() { const value = new RuntimeLink(preferences); value.changed = publish; return value }
 function openSetup() {
   const env = { ...process.env }
-  for (const name of ['LOOM_DESKTOP_SMOKE_DIR', 'LOOM_DESKTOP_SMOKE_KEEP_OPEN', 'LOOM_DESKTOP_SETUP_SMOKE_DIR', 'ELECTRON_RUN_AS_NODE']) delete env[name]
-  const child = spawn(process.execPath, [...app.isPackaged ? [] : [app.getAppPath()], '--ozone-platform=x11', '--class=loom-setup', '--setup-experience'], { env, detached: true, stdio: 'ignore' })
+  for (const name of ['LOOM_DESKTOP_SMOKE_DIR', 'LOOM_DESKTOP_SMOKE_KEEP_OPEN', 'LOOM_DESKTOP_SETUP_SMOKE_DIR', 'LOOM_MACOS_SMOKE_DIR', 'ELECTRON_RUN_AS_NODE']) delete env[name]
+  const child = spawn(process.execPath, platform.setupArguments(app.isPackaged, app.getAppPath()), { env, detached: true, stdio: 'ignore' })
   child.unref()
 }
 function savePreferences() {
@@ -153,6 +157,12 @@ function installIPC() {
     trusted(event)
     if (action === 'new-setup') { openSetup(); return state() }
     if (action === 'feishu-console') { await shell.openExternal('https://open.feishu.cn/app'); return state() }
+    if (action === 'choose-engine') {
+      if (!onboarding?.active || onboarding.busy || onboarding.config.prepared) throw new Error('仅可在准备环境前选择办公引擎。')
+      const answer = await dialog.showOpenDialog(window, { title: '选择已构建的 Loom 办公引擎目录', properties: ['openDirectory'] })
+      if (!answer.canceled && answer.filePaths[0]) onboarding.selectProject(answer.filePaths[0])
+      publish(); return state()
+    }
     if (onboarding?.active) throw new Error('请先完成首次配置，或退出此独立配置窗口。')
     if (action === 'refresh') await refresh()
     else if (action === 'workspace') { statusOpen = false; publish() }
@@ -186,11 +196,12 @@ app.on('before-quit', () => { quitting = true; if (timer) clearInterval(timer) }
 app.on('window-all-closed', () => { if (quitting) app.quit() })
 app.on('activate', () => show())
 app.whenReady().then(async () => {
+  if (setupExperience && process.platform === 'linux') app.setDesktopName('luxi-loom-setup.desktop')
   initialPreferences()
   const existingHome = process.env.DSH_PERSONAL_HOME || path.join(process.env.XDG_DATA_HOME || path.join(app.getPath('home'), '.local/share'), 'superagent/dsh')
   if (setupExperience || !preferences.runtimeHome && !fs.existsSync(path.join(existingHome, 'profiles/superagent/package.json'))) {
     onboarding = new Onboarding({ directory: app.getPath('userData'), projectRoot: projectRootHint,
-      dataRoot: setupSmoke ? path.join(path.resolve(setupSmoke), 'data') : undefined,
+      dataRoot: setupSmoke || macSmoke ? path.join(path.resolve(setupSmoke || macSmoke), 'data') : undefined,
       legacy: { backendRoot: projectRootHint, serviceURL: 'http://127.0.0.1:3082' } })
     onboarding.changed = publish
     onboarding.completed = connection => { Object.assign(preferences, connection); savePreferences(); runtime = link() }
@@ -222,10 +233,15 @@ app.whenReady().then(async () => {
   workspace.webContents.on('did-fail-load', (_event, _code, _description, _url, isMainFrame) => {
     if (!isMainFrame) { statusOpen = true; publish() }
   })
-  try { tray = new Tray(icon); tray.on('click', () => show('overview')) } catch { tray = undefined }
+  try {
+    const trayIcon = process.platform === 'darwin' ? nativeImage.createFromPath(path.join(__dirname, 'assets/trayTemplate.png')) : icon
+    if (process.platform === 'darwin') trayIcon.setTemplateImage(true)
+    tray = new Tray(trayIcon); tray.on('click', () => show('overview'))
+  } catch { tray = undefined }
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Loom', submenu: [{ label: '工作空间', click: () => show() }, { label: '连接与运行状态', click: showStatus },
       { label: '从零配置独立助手', click: openSetup },
+      ...process.platform === 'darwin' ? [{ type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }] : [],
       { type: 'separator' }, { label: '退出 Loom（助手继续运行）', accelerator: 'CmdOrCtrl+Q', click: () => { quitting = true; app.quit() } }] },
     { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: '视图', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
@@ -237,6 +253,8 @@ app.whenReady().then(async () => {
   await refresh(true)
   timer = setInterval(() => void refresh().catch(() => {}), 4000)
   publish()
+  if (process.env.LOOM_MACOS_SMOKE_DIR && process.platform === 'darwin') require('./macos-smoke.cjs').run({ app, window, workspace, onboarding,
+    directory: process.env.LOOM_MACOS_SMOKE_DIR, quit: () => { quitting = true; app.quit() } })
   if (setupSmoke && onboarding?.active) require('./setup-smoke.cjs').run({ app, window, workspace, onboarding, directory: setupSmoke, quit: () => { quitting = true; app.quit() } })
   if (smokeDirectory) require('./smoke.cjs').run({ app, window, workspace, runtime, showStatus, show, publish, state,
     openFromTray: () => trayMenu.getMenuItemById('open-loom').click(), directory: smokeDirectory, quit: () => { quitting = true; app.quit() } })

@@ -9,6 +9,7 @@ const { randomUUID } = require('node:crypto')
 const { execFile } = require('node:child_process')
 const { RuntimeLink, executable, installation } = require('./runtime.cjs')
 const policy = require('./policy.cjs')
+const { dataHome } = require('./platform.cjs')
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
 function write(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
@@ -54,17 +55,25 @@ async function availablePort() {
 class Onboarding {
   constructor({ directory, projectRoot, legacy, dataRoot }, dependencies = {}) {
     this.directory = directory; this.projectRoot = projectRoot; this.legacy = legacy
-    this.dataRoot = dataRoot || path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), 'luxi-loom')
+    this.dataRoot = dataRoot || path.join(dataHome(), 'luxi-loom')
     this.run = dependencies.run || run; this.request = dependencies.request || responseJSON
     this.find = dependencies.executable || executable; this.port = dependencies.port || availablePort
     this.runtimeFactory = dependencies.runtime || (config => new RuntimeLink(config))
     this.config = read(path.join(directory, 'onboarding.json')) || { version: 1, id: randomUUID(), prepared: false }
+    if (typeof this.config.projectRoot === 'string') this.projectRoot = this.config.projectRoot
     if (!/^[a-f0-9-]{36}$/.test(this.config.id) || this.config.version !== 1) throw new Error('首次配置记录无效，请保留现场检查。')
     this.root = path.join(this.dataRoot, 'instances', this.config.id)
     this.profile = 'loom-' + this.config.id.replaceAll('-', '').slice(0, 12)
     this.active = !this.config.completed; this.busy = false; this.message = '从这里，连接你的个人助手。'; this.error = ''; this.groups = []; this.members = []; this.conflicts = []
   }
   persist() { write(path.join(this.directory, 'onboarding.json'), JSON.stringify(this.config, null, 2)) }
+  /** Called only with a directory returned by the trusted native picker; changing an initialized engine is refused. */
+  selectProject(directory) {
+    if (this.busy || !this.active || this.config.prepared) throw new Error('仅可在准备环境前选择办公引擎。')
+    const found = installation(directory)
+    if (!found.valid || !fs.existsSync(path.join(found.root, 'lib/personal-setup.js'))) throw new Error('请选择已完成构建的 Loom 办公引擎目录。')
+    this.projectRoot = found.root; this.config.projectRoot = found.root; this.persist(); this.notify('办公引擎已选择，请检查本机环境。')
+  }
   connection() { return { backendRoot: this.projectRoot, serviceURL: this.config.serviceURL, runtimeHome: path.join(this.root, 'dsh'), profile: this.profile } }
   environment() {
     const found = installation(this.projectRoot)

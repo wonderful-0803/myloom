@@ -83,6 +83,7 @@ window.loomOnboarding = (() => {
     document.querySelectorAll('.setup-back').forEach(button => { button.disabled ||= state.frozen })
     el('setup-start').disabled ||= !el('setup-consent').checked
     el('setup-prepare').disabled ||= state.environment.some(check => !check.available)
+    el('setup-choose-engine').disabled ||= state.prepared
   }
   async function action(name, input, advance = false) {
     if (operating) return
@@ -118,5 +119,9 @@ window.loomOnboarding = (() => {
   el('setup-consent').addEventListener('change', () => { if (current) render(current) })
   el('setup-start').addEventListener('click', () => action('start', { consent: el('setup-consent').checked }, true))
   el('setup-console').addEventListener('click', () => bridge.action('feishu-console'))
+  el('setup-choose-engine').addEventListener('click', async () => {
+    try { const state = await bridge.action('choose-engine'); render(state.onboarding) }
+    catch (error) { el('setup-error').textContent = error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); el('setup-error').hidden = false }
+  })
   return { render }
 })()
