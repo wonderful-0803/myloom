@@ -1,0 +1,1400 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Loom 织机</title>
+<meta name="description" content="Loom，陆兮个人 AI 工作助手。把工作意图织成成果">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap">
+<script>
+(function(){var r=document.documentElement,l='zh',t='';try{l=localStorage.getItem('loom-lang')||l;t=localStorage.getItem('loom-theme')||''}catch(e){}
+r.dataset.lang=l==='en'?'en':'zh';r.lang=r.dataset.lang==='en'?'en':'zh-CN';if(t==='light'||t==='dark')r.dataset.theme=t;r.classList.add('js')})();
+</script>
+<style>
+/* Layout: one long warp of full-bleed bands; pinned "stages" carry scroll-driven scenes, the loom weave bookends the page */
+:root{
+  --orange:#F37021;--brown:#3B2A20;--cream:#EFE6D8;--taupe:#8A6E55;--ink:#1C1C1C;
+  --bg:#EFE6D8;--bg-raise:#F6F0E6;--card:#FBF8F2;--card-2:#F2EADD;
+  --fg:#1C1C1C;--fg-soft:#3B2A20;--muted:#76593F;--faint:#A08670;
+  --line:rgba(59,42,32,.14);--line-strong:rgba(59,42,32,.3);
+  --accent:#F37021;--accent-text:#B44F0E;--accent-ink:#1C1C1C;--accent-wash:rgba(243,112,33,.12);
+  --band:#3B2A20;--band-fg:#EFE6D8;--band-muted:#C9B39A;
+  --paper:#FBF7EF;--paper-ink:#3B2A20;--paper-line:#CDBDA8;
+  --nav-bg:rgba(239,230,216,.72);
+  --shadow:0 40px 80px -40px rgba(59,42,32,.45);
+  --warp:rgba(59,42,32,.16);--weft:rgba(138,110,85,.55);
+  --sky-a:#F7EBDA;--sky-b:#FBF8F2;
+  --display:"Manrope","Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Instrument Serif","Songti SC","STSong",Georgia,serif;
+  --gut:max(20px,env(safe-area-inset-left,0px));--gut-r:max(20px,env(safe-area-inset-right,0px));
+  --top:env(safe-area-inset-top,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1C1C1C;--bg-raise:#221D19;--card:#2A221C;--card-2:#332820;
+  --fg:#EFE6D8;--fg-soft:#E2D4C1;--muted:#B39A80;--faint:#8A6E55;
+  --line:rgba(239,230,216,.12);--line-strong:rgba(239,230,216,.26);
+  --accent-text:#F58A48;--accent-wash:rgba(243,112,33,.16);
+  --band:#3B2A20;--band-fg:#EFE6D8;--band-muted:#C9B39A;
+  --nav-bg:rgba(28,28,28,.72);--shadow:0 40px 80px -40px rgba(0,0,0,.8);
+  --warp:rgba(239,230,216,.1);--weft:rgba(138,110,85,.55);--sky-a:#3B2A20;--sky-b:#2A221C;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1C1C1C;--bg-raise:#221D19;--card:#2A221C;--card-2:#332820;
+  --fg:#EFE6D8;--fg-soft:#E2D4C1;--muted:#B39A80;--faint:#8A6E55;
+  --line:rgba(239,230,216,.12);--line-strong:rgba(239,230,216,.26);
+  --accent-text:#F58A48;--accent-wash:rgba(243,112,33,.16);
+  --band:#3B2A20;--band-fg:#EFE6D8;--band-muted:#C9B39A;
+  --nav-bg:rgba(28,28,28,.72);--shadow:0 40px 80px -40px rgba(0,0,0,.8);
+  --warp:rgba(239,230,216,.1);--weft:rgba(138,110,85,.55);--sky-a:#3B2A20;--sky-b:#2A221C;color-scheme:dark}
+
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:clip}
+html[data-lang="zh"] body [lang="en"],html[data-lang="en"] body [lang="zh-CN"]{display:none!important}
+h1,h2,h3,h4,p{margin:0}
+p,.lede,.step,.wstep,.rule b{text-wrap:pretty}
+.nb{white-space:nowrap}
+h1,h2,h3{text-wrap:balance;font-weight:800;letter-spacing:-.035em;line-height:1.04}
+html[data-lang="zh"] h1,html[data-lang="zh"] h2,html[data-lang="zh"] h3{letter-spacing:-.02em;line-height:1.12;font-weight:900}
+a{color:inherit}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.wrap{max-width:1180px;margin:0 auto;padding-left:var(--gut);padding-right:var(--gut)}
+.eyebrow{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-text)}
+.lede{font-size:clamp(18px,1.9vw,23px);line-height:1.55;color:var(--fg-soft);font-weight:500;max-width:34em}
+.small{font-size:13px;color:var(--muted);line-height:1.6}
+.h2{font-size:clamp(40px,6.6vw,92px)}
+.h3{font-size:clamp(32px,4.4vw,58px)}
+.accent{color:var(--accent)}
+.serif{font-family:var(--serif);font-weight:400;letter-spacing:0}
+
+/* nav */
+body::before{content:"";position:fixed;inset:0 0 auto;height:var(--top);z-index:60;background:var(--nav-bg)}
+.nav{position:fixed;top:var(--top);left:0;right:0;z-index:50;background:var(--nav-bg);backdrop-filter:saturate(1.6) blur(18px);-webkit-backdrop-filter:saturate(1.6) blur(18px);border-bottom:1px solid var(--line)}
+.nav-in{height:52px;display:flex;align-items:center;gap:20px}
+.brand{display:flex;align-items:baseline;gap:8px;text-decoration:none}
+.brand b{font-family:var(--serif);font-size:27px;font-weight:400;letter-spacing:-.01em}
+.brand b i{color:var(--accent);font-style:normal}
+.brand small{font-size:11px;letter-spacing:.12em;color:var(--muted);font-weight:600}
+.nav-links{display:flex;gap:26px;margin-left:auto;font-size:13px}
+.nav-links a{text-decoration:none;color:var(--fg-soft);opacity:.8;transition:opacity .2s,color .2s}
+.nav-links a:hover,.nav-links a.on{opacity:1;color:var(--accent-text)}
+.nav-tools{display:flex;gap:6px;align-items:center}
+.nav-links+.nav-tools{margin-left:8px}
+.tool{height:32px;min-width:32px;padding:0 10px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:700;color:var(--fg-soft);border:1px solid var(--line)}
+.tool:hover{border-color:var(--line-strong);color:var(--fg)}
+.tool svg.i{width:16px;height:16px}
+@media (max-width:760px){.nav-links{display:none}.nav-tools{margin-left:auto}.brand small{display:none}}
+
+/* pinned stages */
+.pin{position:relative;height:var(--len,300vh)}
+.stage{position:sticky;top:var(--top);height:calc(100vh - var(--top));height:calc(100svh - var(--top));overflow:hidden}
+.stage-in{height:100%;padding-top:64px;padding-bottom:max(56px,11vh);display:flex;flex-direction:column}
+
+/* hero */
+.hero{--len:150vh}
+.hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hero .stage-in{justify-content:center;align-items:center;text-align:center;position:relative}
+.hero-copy{position:relative;display:flex;flex-direction:column;align-items:center;gap:22px;will-change:transform,opacity}
+.hero h1{font-size:clamp(58px,11vw,170px);line-height:.98}
+html[data-lang="zh"] .hero h1{font-size:clamp(56px,10.4vw,156px);line-height:1.06}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero .lede{text-align:center;max-width:30em;margin:0 auto}
+.chips{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.chip{font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px;background:var(--bg-raise);border:1px solid var(--line);color:var(--fg-soft);display:inline-flex;gap:8px;align-items:center}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-wash)}
+.scroll-hint{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:8px}
+.scroll-hint i{width:1px;height:34px;background:linear-gradient(var(--muted),transparent);animation:drip 2.2s ease-in-out infinite}
+@keyframes drip{0%{transform:scaleY(0);transform-origin:top}45%{transform:scaleY(1);transform-origin:top}55%{transform:scaleY(1);transform-origin:bottom}100%{transform:scaleY(0);transform-origin:bottom}}
+
+/* statement */
+.statement{--len:165vh}
+.statement .stage-in{justify-content:center}
+.say{font-size:clamp(30px,4.6vw,64px);font-weight:800;line-height:1.24;letter-spacing:-.025em;max-width:16em}
+html[data-lang="zh"] .say{font-weight:900;letter-spacing:0;line-height:1.36;max-width:15em}
+.say .w{opacity:.16;transition:opacity .25s linear}
+.say .w.lit{opacity:1}
+.say .w.hot{color:var(--accent)}
+
+/* principles horizontal */
+.principles{--len:240vh}
+.principles .stage-in{justify-content:center;gap:clamp(24px,4vh,48px)}
+.pr-head{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;flex-wrap:wrap}
+.pr-head .lede{max-width:26em;font-size:17px}
+.track{display:flex;gap:24px;will-change:transform;padding-left:var(--gut);perspective:1200px}
+.track-wrap{margin-left:calc(-1*var(--gut));margin-right:calc(-1*var(--gut-r))}
+.pcard{flex:none;width:min(78vw,440px);height:min(38vh,350px);border-radius:28px;background:var(--card);border:1px solid var(--line);padding:32px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden;transform-style:preserve-3d;will-change:transform}
+.pcard .glyph{position:absolute;right:-6%;bottom:-18%;font-size:min(46vh,380px);line-height:1;font-weight:900;color:transparent;-webkit-text-stroke:1.5px var(--accent);opacity:.55;pointer-events:none;will-change:transform}
+.pcard .tag{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.pcard h3{font-size:clamp(34px,4vw,52px)}
+.pcard p{font-size:17px;color:var(--fg-soft);max-width:18em;position:relative}
+.pcard:nth-child(2){background:var(--band);color:var(--band-fg);border-color:transparent}
+.pcard:nth-child(2) p{color:var(--band-muted)}.pcard:nth-child(2) .tag{color:var(--band-muted)}
+.pcard:nth-child(3){background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.pcard:nth-child(3) .glyph{-webkit-text-stroke-color:var(--accent-ink);opacity:.25}
+.pcard:nth-child(3) p,.pcard:nth-child(3) .tag{color:var(--accent-ink)}
+.credit{font-size:13px;color:var(--muted)}
+.credit a{color:var(--accent-text)}
+
+/* problem wipe */
+.problem{--len:185vh}
+.problem .stage-in{justify-content:center;gap:clamp(20px,4vh,44px)}
+.wipe{position:relative;border-radius:30px;overflow:hidden;box-shadow:var(--shadow)}
+.wpanel{position:absolute;inset:0;padding:clamp(22px,3vw,40px);display:flex;flex-direction:column;gap:22px}
+.wpanel.task{position:relative;background:var(--band);color:var(--band-fg)}
+.wpanel.session{background:var(--card);color:var(--fg);will-change:clip-path}
+.wlabel{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.session .wlabel{color:var(--muted)}.task .wlabel{color:var(--band-muted)}
+.wsteps{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;flex:1}
+.wstep{border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.session .wstep{background:var(--card-2)}
+.task .wstep{background:rgba(239,230,216,.06);border:1px solid rgba(239,230,216,.1);transition:background .4s,border-color .4s}
+.task .wstep.on{background:rgba(243,112,33,.16);border-color:rgba(243,112,33,.5)}
+.wstep b{font-size:clamp(17px,1.6vw,21px);font-weight:800}
+.wstep>span:not(.k){font-size:14px;line-height:1.55;opacity:.78}
+.wstep .k{font-size:12px;font-weight:700;opacity:.55;letter-spacing:.08em}
+.task .wstep .k{color:var(--orange);opacity:1}
+.divider{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);left:100%;box-shadow:0 0 24px var(--accent)}
+.divider::after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;border-radius:50%;background:var(--accent);transform:translate(-50%,-50%);box-shadow:0 0 0 6px var(--accent-wash)}
+
+/* scenes */
+.scenes-intro{padding-block:clamp(100px,14vh,160px) clamp(24px,4vh,40px);text-align:center}
+.scenes-intro .h2{margin:16px 0 22px}
+.scenes-intro .lede{margin:0 auto}
+.scene .stage-in{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr);gap:clamp(24px,4vw,64px);align-items:center}
+.scene-copy{display:flex;flex-direction:column;gap:22px;min-width:0}
+.steps{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.step{display:flex;gap:14px;align-items:flex-start;padding:10px 0;color:var(--muted);transition:color .35s;font-size:16px;font-weight:600;line-height:1.45}
+.step::before{content:"";flex:none;width:22px;height:2px;margin-top:11px;background:var(--line-strong);transition:background .35s,width .35s}
+.step.on{color:var(--fg)}
+.step.on::before{background:var(--accent);width:34px}
+.seg{display:inline-flex;padding:4px;border-radius:999px;background:var(--bg-raise);border:1px solid var(--line);gap:2px;align-self:flex-start}
+.seg button{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:700;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.foot-note{font-size:12px;color:var(--muted);line-height:1.6;max-width:32em}
+
+/* chat */
+.chat-zone{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:18px;align-items:center;min-width:0}
+.chatw{height:min(68vh,600px);border-radius:26px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.chat-top{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gicon{width:36px;height:36px;border-radius:11px;background:var(--brown);color:var(--cream);display:grid;place-items:center;flex:none}
+.chat-top b{font-size:15px;display:block;line-height:1.3}
+.chat-top small{font-size:12px;color:var(--muted)}
+.feed{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:12px;padding:16px 18px;overflow:hidden}
+.msg{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.msg.in{animation:pop .45s cubic-bezier(.2,.8,.2,1) both}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+.av{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:13px;font-weight:800;background:var(--card-2);color:var(--fg-soft)}
+.av.bot{background:var(--accent);color:var(--accent-ink)}
+.mb{min-width:0;display:flex;flex-direction:column;gap:4px;max-width:86%}
+.who{font-size:11px;color:var(--muted);font-weight:600}
+.bub{background:var(--bg-raise);border:1px solid var(--line);border-radius:4px 16px 16px 16px;padding:8px 12px;font-size:14px;line-height:1.55}
+.bot .bub,.msg.bot .bub{background:var(--accent-wash);border-color:rgba(243,112,33,.35)}
+.sys{align-self:center;font-size:12px;color:var(--muted);background:var(--bg-raise);border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+.file{display:flex;gap:10px;align-items:center;margin-top:4px;padding:9px 12px;border-radius:12px;background:var(--card);border:1px solid var(--line-strong);font-size:13px}
+.file .ext{width:30px;height:36px;border-radius:5px;background:var(--brown);color:var(--cream);font-size:9px;font-weight:800;display:grid;place-items:center;flex:none}
+.file small{display:block;color:var(--muted);font-size:11px}
+.typing{font-size:12px;color:var(--muted);padding:0 18px 14px;display:flex;gap:8px;align-items:center}
+.typing i{width:5px;height:5px;border-radius:50%;background:var(--accent);animation:blink 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
+.arts{display:flex;flex-direction:column;gap:12px}
+.art{border-radius:18px;background:var(--card);border:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:8px;transition:transform .6s cubic-bezier(.2,.8,.2,1),opacity .6s;opacity:.35;transform:translateX(24px) rotate(2deg)}
+.art.on{opacity:1;transform:none}
+.art b{font-size:14px}
+.art small{font-size:12px;color:var(--muted);line-height:1.45}
+.pill{align-self:flex-start;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--card-2);color:var(--muted)}
+.pill.ok{background:var(--accent);color:var(--accent-ink)}
+.pill.stale{background:transparent;border:1px dashed var(--line-strong)}
+
+/* resume */
+.bench{display:flex;flex-direction:column;gap:18px;min-width:0}
+.papers{position:relative;height:min(25vh,220px);display:flex;justify-content:center;align-items:center;gap:clamp(10px,2vw,26px)}
+.paper{position:relative;width:clamp(96px,13vw,170px);aspect-ratio:3/4;max-width:100%;background:var(--paper);color:var(--paper-ink);border-radius:4px;padding:8% 9%;box-shadow:0 18px 30px -16px rgba(28,20,14,.55);display:flex;flex-direction:column;gap:6%;font-size:clamp(7px,.8vw,10px);will-change:transform,filter}
+.paper strong{font-size:1.5em;border-bottom:1px solid var(--paper-line);padding-bottom:5%}
+.paper .l{display:block;height:3px;border-radius:2px;background:var(--paper-line)}
+.paper .l.s{width:64%}
+.paper em{font-style:normal;font-weight:700;font-size:.95em;opacity:.8}
+.stamp{position:absolute;top:10%;right:-10%;transform:rotate(12deg);font-size:12px;font-weight:800;padding:3px 8px;border-radius:6px;border:2px solid var(--accent);color:var(--accent);background:var(--paper);opacity:0;transition:opacity .3s}
+.stamp.show{opacity:1}
+.fields{position:absolute;left:50%;bottom:-14px;transform:translateX(-50%);display:flex;gap:4px;white-space:nowrap;opacity:0;transition:opacity .35s,transform .35s}
+.fields.show{opacity:1;transform:translate(-50%,8px)}
+.fields b{font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--brown);color:var(--cream)}
+.beam{position:absolute;top:-6%;bottom:-6%;width:3px;left:0;background:var(--accent);box-shadow:0 0 30px 8px rgba(243,112,33,.45);opacity:0;border-radius:3px}
+.agent-row{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--muted);justify-content:center;transition:color .3s}
+.agent-row .dot{transition:transform .3s}
+.agent-row.on{color:var(--fg)}
+.agent-row.on .dot{animation:pulse 1.2s infinite}
+@keyframes pulse{50%{transform:scale(1.5)}}
+.base{border-radius:20px;background:var(--card);border:1px solid var(--line);overflow:hidden;box-shadow:var(--shadow)}
+.base-top{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line);font-size:14px}
+.base-top b{font-weight:700}
+.base-top small{color:var(--muted);font-size:12px}
+.sync{margin-left:auto;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;border:1px solid var(--line-strong);color:var(--muted);white-space:nowrap}
+.sync.ok{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.tscroll{overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+th:first-child{width:22%}th:nth-child(3){width:16%}th:nth-child(4){width:22%}
+td{overflow-wrap:anywhere}
+th{font-size:11px;font-weight:600;color:var(--muted);text-align:left;padding:9px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr{transition:opacity .45s,transform .45s cubic-bezier(.2,.8,.2,1)}
+tbody tr.off{opacity:0;transform:translateX(40px)}
+tbody tr:last-child td{border-bottom:0}
+td strong{display:block;font-size:14px}
+td small{color:var(--muted);font-size:11px}
+.tg{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.tg.a{background:var(--accent);color:var(--accent-ink)}
+.tg.b{background:var(--card-2);color:var(--fg-soft);border:1px solid var(--line-strong)}
+.tg.c{background:var(--brown);color:var(--cream)}
+.base-foot{padding:9px 16px;font-size:11px;color:var(--muted);border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+
+/* office */
+.office .stage-in{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.ask{align-self:flex-start;max-width:28em;background:var(--card);border:1px solid var(--line);border-radius:4px 20px 20px 20px;padding:14px 18px;font-size:16px;font-weight:600;line-height:1.55;box-shadow:var(--shadow)}
+.ask small{display:block;font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px}
+.pipe{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pipe b{font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;border:1px solid var(--line-strong);color:var(--muted);transition:all .35s}
+.pipe b.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.pipe i{width:16px;height:1px;background:var(--line-strong)}
+.doc-wrap{display:flex;justify-content:center;align-items:center;perspective:1400px;min-width:0}
+.doc{width:min(100%,430px);aspect-ratio:3/4;max-height:68vh;background:var(--paper);color:var(--paper-ink);border-radius:10px;padding:clamp(22px,3vw,38px);display:flex;flex-direction:column;gap:14px;box-shadow:0 60px 90px -40px rgba(28,20,14,.6);will-change:transform;transform-origin:50% 60%}
+.doc .dk{display:flex;justify-content:space-between;font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--taupe)}
+.doc .dk i{font-family:var(--serif);font-style:italic;font-size:20px;letter-spacing:0;color:var(--brown);font-weight:400}
+.doc h4{font-size:clamp(22px,2.4vw,30px);font-weight:900;line-height:1.2;letter-spacing:-.01em}
+.doc .ln{height:6px;border-radius:3px;background:var(--paper-line);transform-origin:left;will-change:transform}
+.doc .ln.o{background:var(--orange)}
+.doc .meta{margin-top:auto;display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;color:var(--taupe);border-top:1px solid var(--paper-line);padding-top:12px}
+.doc .kv{display:grid;gap:6px;font-size:13px;font-weight:600}
+.doc .kv>span{display:flex;gap:8px;align-items:center}
+.doc .kv>span::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--orange)}
+
+.uses{padding-block:clamp(40px,6vh,80px) clamp(80px,12vh,140px)}
+.uses-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.use{border-radius:26px;background:var(--card);border:1px solid var(--line);padding:28px;display:flex;flex-direction:column;gap:14px;will-change:transform}
+.use:nth-child(2){background:var(--band);color:var(--band-fg);border-color:transparent}
+.use:nth-child(2) p,.use:nth-child(2) .tagline{color:var(--band-muted)}
+.use .tagline{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-text)}
+.use h3{font-size:clamp(24px,2.4vw,32px)}
+.use p{color:var(--fg-soft);font-size:16px}
+.use q{margin-top:auto;font-size:15px;font-weight:600;line-height:1.55;padding-top:16px;border-top:1px solid var(--line);quotes:none}
+.use:nth-child(2) q{border-color:rgba(239,230,216,.15)}
+
+/* product */
+.product{--len:380vh}
+.product .stage-in{gap:clamp(18px,3vh,32px)}
+.prod-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.prod-head .h3{max-width:12em}
+.prod-head .lede{font-size:17px;max-width:24em}
+.prod-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(20px,4vw,56px);align-items:center}
+.caps{display:flex;flex-direction:column;border-left:2px solid var(--line);position:relative}
+.caps .rail{position:absolute;left:-2px;top:0;width:2px;background:var(--accent);height:20%;transition:transform .45s cubic-bezier(.2,.8,.2,1)}
+.cap{text-align:left;padding:12px 0 12px 22px;display:flex;flex-direction:column;gap:6px;color:var(--muted)}
+.cap b{font-size:clamp(18px,1.9vw,24px);font-weight:800;transition:color .3s}
+.cap>span{font-size:15px;line-height:1.55;color:var(--fg-soft);display:none}
+.cap.on{color:var(--fg)}
+.cap.on b{color:var(--fg)}
+.cap.on>span{display:block;animation:pop .5s both}
+.device{position:relative;height:min(58vh,480px);perspective:1600px}
+.panel{position:absolute;inset:0;border-radius:28px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);padding:clamp(20px,2.6vw,34px);display:flex;flex-direction:column;gap:16px;opacity:0;transform:translateY(70px) rotateX(-14deg) scale(.96);transition:opacity .55s,transform .75s cubic-bezier(.2,.8,.2,1);pointer-events:none;overflow:hidden}
+.panel.before{transform:translateY(-50px) rotateX(12deg) scale(.94)}
+.panel.on{opacity:1;transform:none;pointer-events:auto}
+.ptitle{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.ptitle b{font-size:18px}
+.rows{display:grid;gap:2px;border-radius:16px;overflow:hidden;border:1px solid var(--line)}
+.rowkv{display:flex;justify-content:space-between;gap:16px;padding:12px 14px;background:var(--bg-raise);font-size:14px}
+.rowkv>span:first-child{color:var(--muted)}
+.rowkv>span:last-child{font-weight:700;text-align:right}
+.tl{display:flex;flex-direction:column;gap:14px;position:relative;padding-left:26px}
+.tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.tl .fill{position:absolute;left:7px;top:6px;width:2px;background:var(--accent);height:0;transition:height .3s}
+.tl div{position:relative;font-size:15px;font-weight:700}
+.tl div::before{content:"";position:absolute;left:-25px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--card);border:2px solid var(--line-strong);transition:all .3s}
+.tl div.on::before{background:var(--accent);border-color:var(--accent)}
+.tl small{display:block;font-size:12px;color:var(--muted);font-weight:500}
+.note-me{margin-top:auto;padding:12px 14px;border-radius:14px;background:var(--accent-wash);font-size:14px;font-weight:600;border:1px solid rgba(243,112,33,.35)}
+.log{display:grid;gap:10px}
+.log div{display:flex;gap:12px;align-items:center;font-size:15px;font-weight:600;color:var(--muted);transition:color .3s}
+.log div i{width:22px;height:22px;border-radius:50%;border:2px solid var(--line-strong);display:grid;place-items:center;flex:none;transition:all .3s}
+.log div i svg{width:12px;height:12px;opacity:0}
+.log div.on{color:var(--fg)}
+.log div.on i{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.log div.on i svg{opacity:1}
+.log small{display:block;font-size:12px;color:var(--muted);font-weight:500}
+.ctl{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px;border-radius:16px;background:var(--bg-raise);border:1px solid var(--line)}
+.ctl b{font-size:15px;display:block}
+.ctl small{font-size:12px;color:var(--muted)}
+.btn{padding:10px 18px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-weight:800;font-size:14px;white-space:nowrap;transition:transform .2s}
+.btn:hover{transform:scale(1.03)}
+.btn.ghost{background:var(--fg);color:var(--bg)}
+.radios{display:grid;gap:10px}
+.radios label{display:flex;gap:12px;align-items:center;padding:13px 14px;border-radius:14px;border:1px solid var(--line);background:var(--bg-raise);font-size:15px;font-weight:600;cursor:pointer;transition:border-color .2s,background .2s}
+.radios input{accent-color:var(--orange);width:18px;height:18px}
+.radios label:has(input:checked){border-color:var(--accent);background:var(--accent-wash)}
+.rdesc{font-size:13px;color:var(--muted);line-height:1.6}
+
+/* context */
+.context{padding-block:clamp(110px,16vh,180px) 40px}
+.ctx-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(28px,5vw,72px);align-items:start;margin-top:40px}
+.rule-card{border-radius:26px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
+.rule-card header{padding:16px 20px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700;color:var(--muted);display:flex;justify-content:space-between}
+.rule{padding:16px 20px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:88px minmax(0,1fr);gap:14px;font-size:15px}
+html[data-lang="en"] .rule{grid-template-columns:120px minmax(0,1fr)}
+.rule>span{font-size:12px;font-weight:700;color:var(--accent-text);padding-top:2px}
+.rule b{font-weight:600}
+details{padding:14px 20px}
+summary{cursor:pointer;font-size:14px;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-size:20px;color:var(--accent-text);transition:transform .3s}
+details[open] summary::after{transform:rotate(45deg)}
+.quotes{display:grid;gap:10px;margin-top:14px}
+.quotes p{font-size:14px;line-height:1.6;padding-left:12px;border-left:2px solid var(--accent)}
+.quotes p small{display:block;font-size:11px;color:var(--muted);font-weight:700}
+.ring-sec{--len:175vh}
+.ring-sec .stage-in{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:clamp(20px,4vw,60px)}
+.ring{position:relative;width:min(100%,62vh,560px);aspect-ratio:1;max-width:100%;margin:0 auto}
+.ring svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.ring .track-c{fill:none;stroke:var(--line-strong);stroke-width:1.5}
+.ring .prog-c{fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round}
+.ring-rot{position:absolute;inset:0;will-change:transform}
+.node{position:absolute;width:0;height:0}
+.node b{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;font-size:clamp(12px,1.3vw,15px);font-weight:800;padding:9px 14px;border-radius:999px;background:var(--card);border:1px solid var(--line-strong);transition:background .35s,color .35s,border-color .35s,box-shadow .35s;will-change:transform}
+.node.on b{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);box-shadow:0 0 0 8px var(--accent-wash)}
+.ring-center{position:absolute;inset:22%;border-radius:50%;display:grid;place-items:center;text-align:center;font-size:clamp(18px,2.2vw,28px);font-weight:900;line-height:1.3;letter-spacing:-.01em}
+.pillars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(20px,3vw,40px);padding-block:20px clamp(110px,15vh,170px)}
+.pillar{display:flex;flex-direction:column;gap:12px;padding-top:22px;border-top:2px solid var(--fg)}
+.pillar h3{font-size:clamp(22px,2.2vw,28px)}
+.pillar p{font-size:16px;color:var(--fg-soft)}
+
+.closer{display:flex;flex-direction:column;align-items:center;text-align:center;gap:22px;padding-block:clamp(90px,14vh,150px) 0}
+.closer-say{font-size:clamp(34px,5.4vw,76px);font-weight:900;line-height:1.18;letter-spacing:-.02em;text-wrap:balance}
+html[data-lang="en"] .closer-say{font-weight:800;letter-spacing:-.035em;line-height:1.08}
+.closer .lede{margin:0 auto;text-align:center;max-width:30em}
+
+/* scene tabs */
+.scene-tabs{position:sticky;top:calc(var(--top) + 53px);z-index:40;display:flex;justify-content:center;padding:10px var(--gut-r) 10px var(--gut);pointer-events:none}
+.tabs-in{pointer-events:auto;display:flex;gap:4px;padding:5px;border-radius:999px;background:var(--nav-bg);backdrop-filter:saturate(1.6) blur(18px);-webkit-backdrop-filter:saturate(1.6) blur(18px);border:1px solid var(--line);box-shadow:0 10px 30px -18px rgba(28,20,14,.5);max-width:100%}
+.tabs-in button{display:flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;font-size:14px;font-weight:700;color:var(--muted);white-space:nowrap;transition:background .25s,color .25s}
+.tabs-in button i{font-style:normal;font-size:11px;font-weight:800;color:var(--accent-text);opacity:.8}
+.tabs-in button:hover{color:var(--fg)}
+.tabs-in button[aria-selected="true"]{background:var(--fg);color:var(--bg)}
+.tabs-in button[aria-selected="true"] i{color:var(--accent)}
+.scenes-wrap .scene .stage-in{padding-top:124px}
+@media (max-width:980px){.scenes-wrap .scene .stage-in{padding-top:118px}}
+@media (max-width:560px){.tabs-in button{padding:8px 10px;font-size:13px;gap:5px}.tabs-in button i{display:none}}
+/* home */
+.home-scene .stage-in{grid-template-columns:minmax(0,.8fr) minmax(0,1.3fr)}
+.clock{font-size:clamp(56px,7vw,104px);font-weight:800;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:14px}
+.clock small{font-size:14px;letter-spacing:.02em;font-weight:700;color:var(--muted)}
+.board{border-radius:28px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.sky{position:relative;height:92px;background:linear-gradient(180deg,var(--sky-a),var(--sky-b));transition:background .6s;overflow:hidden}
+.sky svg{position:absolute;inset:0;width:100%;height:100%}
+.sky .arc{fill:none;stroke:var(--line-strong);stroke-dasharray:3 5}
+.sundot{position:absolute;width:18px;height:18px;border-radius:50%;background:var(--accent);transform:translate(-50%,-50%);box-shadow:0 0 0 8px var(--accent-wash),0 0 30px rgba(243,112,33,.5)}
+.sky .hz{stroke:var(--line-strong)}
+.sky-label{position:absolute;left:18px;top:14px;font-size:12px;font-weight:700;color:var(--fg-soft);display:flex;gap:8px;align-items:center}
+.sky-label b{font-weight:800}
+.board-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:14px;padding:16px}
+.dele{display:flex;flex-direction:column;gap:8px}
+.dele h4{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.06em;display:flex;justify-content:space-between}
+.ditem{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:14px;background:var(--bg-raise);border:1px solid var(--line);transition:border-color .3s,background .3s}
+.ditem.live{border-color:rgba(243,112,33,.5);background:var(--accent-wash)}
+.ditem .ic{width:30px;height:30px;border-radius:9px;background:var(--brown);color:var(--cream);display:grid;place-items:center;flex:none;font-size:13px;font-weight:800}
+.ditem b{display:block;font-size:14px;line-height:1.3}
+.ditem small{font-size:11px;color:var(--muted)}
+.plan{position:relative;border-radius:16px;background:var(--bg-raise);border:1px solid var(--line);overflow:hidden;min-height:150px}
+.plan svg{position:absolute;inset:0;width:100%;height:100%}
+.plan .room{fill:none;stroke:var(--line-strong);stroke-width:1.5}
+.plan .path{fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.plan .bot{fill:var(--fg)}
+.plan .ac{fill:var(--card-2);stroke:var(--line-strong);transition:fill .4s}
+.plan .ac.on{fill:var(--accent)}
+.plan .rl{font-size:9px;font-weight:700;fill:var(--muted);font-family:var(--display)}
+.plan .cool{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:0}
+.lanes{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1px;background:var(--line);border-top:1px solid var(--line)}
+.lane{background:var(--card);padding:14px 16px;display:flex;flex-direction:column;gap:9px;min-width:0}
+.lane-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.lane-top code{font-family:var(--display);font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--muted)}
+.lane b{font-size:14px;line-height:1.35}
+.lane .st{font-size:12px;color:var(--fg-soft);line-height:1.5;min-height:3em}
+.ldots{display:flex;gap:4px}
+.ldots i{flex:1;height:4px;border-radius:2px;background:var(--line-strong);transition:background .3s}
+.ldots i.on{background:var(--accent)}
+.habit{margin:0 16px 16px;border-radius:16px;padding:14px 16px;background:var(--band);color:var(--band-fg);display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 16px;align-items:center;transition:opacity .5s,transform .6s cubic-bezier(.2,.8,.2,1);opacity:0;transform:translateY(24px)}
+.habit.on{opacity:1;transform:none}
+.habit .big{grid-row:span 2;font-size:34px;font-weight:800;letter-spacing:-.03em;color:var(--orange)}
+.habit b{font-size:14px}
+.habit small{font-size:12px;color:var(--band-muted)}
+@media (max-width:980px){.board-body{grid-template-columns:minmax(0,1fr)}.plan{display:none}.sky{height:70px}.home-scene .clock{font-size:44px}}
+@media (max-width:760px){.lanes{grid-template-columns:minmax(0,1fr)}.lane .st{min-height:0}.lane:nth-child(1) .st,.lane:nth-child(2) .st{font-size:11px}.habit .big{font-size:26px}.ditem{padding:8px 10px}}
+/* value */
+.value{background:var(--band);color:var(--band-fg);padding-block:clamp(110px,16vh,180px)}
+.value .lede{color:var(--band-muted)}
+.value .eyebrow{color:var(--orange)}
+.vgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:rgba(239,230,216,.12);border-radius:26px;overflow:hidden;margin-top:56px}
+.vcard{background:var(--band);padding:30px 28px;display:flex;flex-direction:column;gap:10px;min-height:190px;will-change:transform}
+.vcard b{font-size:13px;font-weight:700;color:var(--orange);letter-spacing:.06em}
+.vcard p{font-size:clamp(19px,1.8vw,24px);font-weight:800;line-height:1.4;letter-spacing:-.01em}
+.roles{display:flex;flex-wrap:wrap;gap:10px;margin-top:40px;align-items:center}
+.roles>span{padding:8px 16px;border-radius:999px;border:1px solid rgba(239,230,216,.25);font-size:14px;font-weight:700}
+.roles em{font-style:normal;font-size:15px;color:var(--band-muted);margin-right:8px}
+.value .small{color:var(--band-muted);margin-top:28px}
+
+/* roadmap */
+.roadmap{padding-block:clamp(110px,16vh,180px) clamp(70px,10vh,110px)}
+.rm-line{position:relative;height:2px;background:var(--line);margin:64px 0 0}
+.rm-line i{position:absolute;inset:0;background:var(--accent);transform-origin:left;transform:scaleX(0)}
+.rm-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(20px,3vw,40px)}
+.rm-col{padding-top:30px;position:relative;transition:opacity .5s;opacity:.35}
+.rm-col.on{opacity:1}
+.rm-col::before{content:"";position:absolute;top:-8px;left:0;width:14px;height:14px;border-radius:50%;background:var(--bg);border:2px solid var(--line-strong);transition:all .4s}
+.rm-col.on::before{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 6px var(--accent-wash)}
+.rm-col .k{font-family:var(--serif);font-size:44px;line-height:1;font-style:italic}
+.rm-col h3{font-size:20px;margin:8px 0 16px;letter-spacing:-.01em}
+.rm-col ul{margin:0;padding:0;list-style:none;display:grid;gap:10px}
+.rm-col li{font-size:16px;color:var(--fg-soft);padding-left:18px;position:relative}
+.rm-col li::before{content:"";position:absolute;left:0;top:.7em;width:8px;height:2px;background:var(--accent)}
+.roadmap .small{margin-top:40px;max-width:52em}
+
+/* trust + closing */
+.trust{padding-block:clamp(70px,12vh,140px)}
+.trust-box{border-radius:34px;background:var(--accent);color:var(--accent-ink);padding:clamp(32px,6vw,80px);display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:clamp(24px,4vw,60px);align-items:end;will-change:transform}
+.trust-box p{font-size:clamp(17px,1.6vw,20px);font-weight:600;line-height:1.6}
+.closing{position:relative;overflow:hidden;padding-block:clamp(120px,20vh,220px) clamp(90px,14vh,160px);text-align:center}
+.closing svg.thread{position:absolute;left:0;width:100%;top:50%;height:240px;transform:translateY(-50%);pointer-events:none;overflow:visible}
+.closing svg.thread path{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linecap:round}
+.closing .wrap{position:relative}
+.closing .h2{font-size:clamp(44px,7.6vw,110px)}
+.closing .lede{margin:28px auto 0;text-align:center}
+.closing .chips{margin-top:36px}
+.chip a{text-decoration:none}
+footer.ft{border-top:1px solid var(--line);padding-block:28px 40px;font-size:12px;color:var(--muted)}
+.ft-in{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+.ft-in a{color:var(--fg-soft)}
+.ft-links{display:flex;gap:18px;flex-wrap:wrap}
+
+/* reveal */
+.js [data-reveal]{will-change:transform,opacity}
+
+/* responsive */
+@media (max-width:980px){
+  .scene .stage-in,.office .stage-in{grid-template-columns:minmax(0,1fr);align-content:start;gap:16px}
+  .scene .stage-in{padding-top:68px;padding-bottom:20px}
+  .scene-copy{gap:12px}
+  .scene-copy .lede,.scene-copy .foot-note{display:none}
+  .steps{flex-direction:row;gap:0}
+  .step{display:none;padding:0}
+  .step.on{display:flex;font-size:15px}
+  .chat-zone{grid-template-columns:minmax(0,1fr)}
+  .arts{display:none}
+  .chatw{height:min(56svh,520px)}
+  .papers{height:min(22svh,190px)}
+  .prod-body{grid-template-columns:minmax(0,1fr);align-content:start;gap:16px}
+  .caps{flex-direction:row;border-left:0;border-bottom:2px solid var(--line);overflow:hidden}
+  .caps .rail{top:auto;bottom:-2px;height:2px!important;width:20%;left:0}
+  .cap{padding:8px 4px;flex:1;align-items:center;text-align:center}
+  .cap b{font-size:12px}
+  .cap.on>span{display:none}
+  .cap-desc{display:block!important}
+  .device{height:min(46svh,420px)}
+  .ring-sec .stage-in{grid-template-columns:minmax(0,1fr);align-content:center}
+  .ring{width:min(100%,46svh)}
+  .ctx-grid,.trust-box{grid-template-columns:minmax(0,1fr)}
+  .doc{max-height:46svh;width:auto;height:46svh}
+  .doc-wrap{order:2}
+}
+.cap-desc{display:none;font-size:15px;color:var(--fg-soft);line-height:1.55;min-height:3.1em}
+@media (max-width:760px){
+  body{font-size:16px}
+  .stage-in{padding-top:64px;padding-bottom:28px}
+  .wsteps{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .wstep{padding:12px}
+  .wstep span{font-size:12.5px}
+  .uses-grid,.vgrid,.pillars,.rm-cols{grid-template-columns:minmax(0,1fr)}
+  .rm-line{display:none}
+  .rm-col{opacity:1;border-top:1px solid var(--line)}
+  .rm-col::before{display:none}
+  .pcard{height:min(50svh,420px);padding:24px}
+  .col-hide{display:none}
+  .hero .lede br{display:none}
+  .office .ask{font-size:14px;padding:10px 14px}
+  .office .h3{font-size:30px}
+  .office .pipe b{font-size:11px;padding:5px 10px}
+  .office .pipe i{width:8px}
+  .doc{height:40svh}
+  .prod-head .lede{display:none}
+  .resume-scene th:nth-child(4),.resume-scene td:nth-child(4){display:none}
+  .resume-scene th:first-child{width:auto}.resume-scene th:nth-child(3){width:32%}
+  .resume-scene .agent-row{font-size:12px}
+  .resume-scene td{padding:8px 12px}
+  .bench{gap:12px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .pin{height:auto!important}
+  .stage{position:relative;height:auto;overflow:visible}
+  .stage-in{padding-block:100px 60px}
+  .hero .stage-in{min-height:80vh}
+  .track{flex-wrap:wrap;transform:none!important;padding-right:var(--gut)}
+  .track .pcard{transform:none!important}
+  .wpanel{position:relative}
+  .wpanel.session{clip-path:none!important}
+  .divider{display:none}
+  .panel{position:relative;opacity:1;transform:none;pointer-events:auto;margin-bottom:16px}
+  .device{height:auto}
+  .say .w{opacity:1}
+  .scroll-hint i,.typing i,.agent-row .dot{animation:none}
+  .msg.in{animation:none}
+}
+</style>
+</head>
+<body>
+
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-auto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 18.5 3.5 21V6a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H6Z"/><path d="M8 9h8M8 13h5"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M3 15h18M10 4v16"/></symbol>
+</svg>
+
+<nav class="nav" aria-label="Loom">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top"><b>Loom<i>.</i></b><small>BY LUXI 陆兮</small></a>
+    <div class="nav-links">
+      <a href="#idea"><span lang="zh-CN">理念</span><span lang="en">Idea</span></a>
+      <a href="#product"><span lang="zh-CN">产品</span><span lang="en">Product</span></a>
+      <a href="#context"><span lang="zh-CN">上下文</span><span lang="en">Context</span></a>
+      <a href="#scenes"><span lang="zh-CN">场景</span><span lang="en">Scenes</span></a>
+      <a href="#roadmap"><span lang="zh-CN">进展</span><span lang="en">Roadmap</span></a>
+    </div>
+    <div class="nav-tools">
+      <button class="tool" id="langBtn" type="button" aria-label="Switch language"><span lang="zh-CN">EN</span><span lang="en">中文</span></button>
+      <button class="tool" id="themeBtn" type="button" aria-label="Theme"><svg class="i"><use href="#i-auto"/></svg></button>
+    </div>
+  </div>
+</nav>
+
+<main id="top">
+
+<!-- HERO -->
+<section class="pin hero" data-scene="hero" aria-label="Loom">
+  <div class="stage">
+    <canvas id="weave" aria-hidden="true"></canvas>
+    <div class="wrap stage-in">
+      <div class="hero-copy" id="heroCopy">
+        <p class="eyebrow"><span lang="zh-CN">Loom · 陆兮个人 AI 工作助手</span><span lang="en">Loom · A personal AI work assistant by Luxi</span></p>
+        <h1><span lang="zh-CN">把工作意图<br><em>织成成果</em></span><span lang="en">Weave intent<br><em>into outcomes</em></span></h1>
+        <p class="lede"><span lang="zh-CN">扎根真实工作环境，接续上下文<br>安静推进，成果一目了然</span><span lang="en">Lives where you already work<br>Keeps the context, moves quietly, shows every result</span></p>
+        <div class="chips">
+          <span class="chip"><i class="dot"></i><span lang="zh-CN">个人助手内测中</span><span lang="en">Personal pilot underway</span></span>
+          <span class="chip"><span lang="zh-CN">飞书入口 × 桌面工作空间</span><span lang="en">Feishu × Desktop workspace</span></span>
+        </div>
+      </div>
+      <div class="scroll-hint" aria-hidden="true"><span lang="zh-CN">向下滑动</span><span lang="en">Scroll</span><i></i></div>
+    </div>
+  </div>
+</section>
+
+<!-- STATEMENT -->
+<section class="pin statement" id="idea" data-scene="statement">
+  <div class="stage"><div class="wrap stage-in">
+    <p class="say" data-split lang="zh-CN">人的注意力，值得珍惜|整理背景、跟进进度、搬运结果|*交给 Loom</p>
+    <p class="say" data-split lang="en">Your attention is precious|Gathering context, chasing progress, carrying results|*Let Loom handle it</p>
+  </div></div>
+</section>
+
+<!-- PRINCIPLES -->
+<section class="pin principles" data-scene="principles">
+  <div class="stage"><div class="wrap stage-in">
+    <div class="pr-head">
+      <div>
+        <p class="eyebrow">The foundation</p>
+        <h2 class="h3" style="margin-top:12px"><span lang="zh-CN">从单次对话<br>走向持续协作</span><span lang="en">From single chats<br>to ongoing work</span></h2>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;max-width:26em">
+        <p class="lede"><span lang="zh-CN">灵感来自 DeepSeek Harness 的 Super-agent 设计探索</span><span lang="en">Inspired by the Super-agent design from DeepSeek Harness</span></p>
+        <p class="credit"><span lang="zh-CN">基于 <a href="https://github.com/deepseek-ai/dsh-superagent-prototype" target="_blank" rel="noopener">DeepSeek 开源研究原型</a>，由陆兮独立推进</span><span lang="en">Built by Luxi on the <a href="https://github.com/deepseek-ai/dsh-superagent-prototype" target="_blank" rel="noopener">open DeepSeek prototype</a></span></p>
+      </div>
+    </div>
+    <div class="track-wrap"><div class="track" id="track">
+      <article class="pcard"><span class="glyph" aria-hidden="true">连</span><span class="tag">01 · Continuous</span><div><h3><span lang="zh-CN">连续</span><span lang="en">Continuous</span></h3><p style="margin-top:12px"><span lang="zh-CN">同一件事，只交代一次</span><span lang="en">Explain it once</span></p></div></article>
+      <article class="pcard"><span class="glyph" aria-hidden="true">效</span><span class="tag">02 · Productive</span><div><h3><span lang="zh-CN">高效</span><span lang="en">Productive</span></h3><p style="margin-top:12px"><span lang="zh-CN">几件事，同时往前走</span><span lang="en">Many tasks, all moving</span></p></div></article>
+      <article class="pcard"><span class="glyph" aria-hidden="true">主</span><span class="tag">03 · Proactive</span><div><h3><span lang="zh-CN">主动</span><span lang="en">Proactive</span></h3><p style="margin-top:12px"><span lang="zh-CN">在授权范围内，发现值得做的事</span><span lang="en">Spots what’s worth doing, within your rules</span></p></div></article>
+      <article class="pcard"><span class="glyph" aria-hidden="true">久</span><span class="tag">04 · Persistent</span><div><h3><span lang="zh-CN">持久</span><span lang="en">Persistent</span></h3><p style="margin-top:12px"><span lang="zh-CN">重启之后，照样接着做</span><span lang="en">Picks up where it left off</span></p></div></article>
+    </div></div>
+  </div></div>
+</section>
+
+<!-- PROBLEM -->
+<section class="pin problem" data-scene="problem">
+  <div class="stage"><div class="wrap stage-in">
+    <div>
+      <p class="eyebrow">Where the idea begins</p>
+      <h2 class="h3" style="margin-top:12px"><span lang="zh-CN">需求在交流中生长<br>上下文却要人来搬运</span><span lang="en">Needs grow in conversation<br>Context still moves by hand</span></h2>
+    </div>
+    <div class="wipe" id="wipe">
+      <div class="wpanel task">
+        <div class="wlabel"><span lang="zh-CN">以任务为中心 · Loom</span><span lang="en">Task-centred · Loom</span></div>
+        <div class="wsteps">
+          <div class="wstep"><span class="k">01</span><b><span lang="zh-CN">表达目标</span><span lang="en">State the goal</span></b><span><span lang="zh-CN">原地提出，或设持续委托</span><span lang="en">Ask in place, or set a delegation</span></span></div>
+          <div class="wstep"><span class="k">02</span><b><span lang="zh-CN">助手组织工作</span><span lang="en">Loom organizes</span></b><span><span lang="zh-CN">按授权开任务、去执行</span><span lang="en">Opens and runs tasks within your rules</span></span></div>
+          <div class="wstep"><span class="k">03</span><b><span lang="zh-CN">按需介入</span><span lang="en">Step in anytime</span></b><span><span lang="zh-CN">看进展，随时接管</span><span lang="en">Watch, or take over anytime</span></span></div>
+          <div class="wstep"><span class="k">04</span><b><span lang="zh-CN">成果回到工作中</span><span lang="en">Results come home</span></b><span><span lang="zh-CN">带着版本和来源交付</span><span lang="en">With versions and sources</span></span></div>
+        </div>
+      </div>
+      <div class="wpanel session" id="wfront">
+        <div class="wlabel"><span lang="zh-CN">以会话为中心</span><span lang="en">Session-centred</span></div>
+        <div class="wsteps">
+          <div class="wstep"><span class="k">01</span><b><span lang="zh-CN">整理背景</span><span lang="en">Gather context</span></b><span><span lang="zh-CN">找资料、写提示词</span><span lang="en">Find files, write prompts</span></span></div>
+          <div class="wstep"><span class="k">02</span><b><span lang="zh-CN">打开会话</span><span lang="en">Open a chat</span></b><span><span lang="zh-CN">一件事一个会话</span><span lang="en">One chat per task</span></span></div>
+          <div class="wstep"><span class="k">03</span><b><span lang="zh-CN">反复同步</span><span lang="en">Keep syncing</span></b><span><span lang="zh-CN">变化要一条条转述</span><span lang="en">Relay every change</span></span></div>
+          <div class="wstep"><span class="k">04</span><b><span lang="zh-CN">搬运结果</span><span lang="en">Carry results</span></b><span><span lang="zh-CN">整理好再送回去</span><span lang="en">Format it, carry it back</span></span></div>
+        </div>
+      </div>
+      <div class="divider" id="divider" aria-hidden="true"></div>
+    </div>
+    <p class="small"><span lang="zh-CN">使用路径示意，不代表效率测量</span><span lang="en">Illustrative path, not a measured comparison</span></p>
+  </div></div>
+</section>
+
+<!-- PRODUCT -->
+<section class="pin product" id="product" data-scene="product">
+  <div class="stage"><div class="wrap stage-in">
+    <div class="prod-head">
+      <div><p class="eyebrow">The product</p><h2 class="h3" style="margin-top:12px"><span lang="zh-CN">把目标交给助手<br>把控制留在手中</span><span lang="en">Hand over the goal<br>Keep the controls</span></h2></div>
+      <p class="lede"><span lang="zh-CN">飞书里交流，桌面上查看与介入</span><span lang="en">Talk in Feishu, oversee on desktop</span></p>
+    </div>
+    <div class="prod-body">
+      <div>
+        <div class="caps" id="caps"><i class="rail" id="rail"></i>
+          <button class="cap on" type="button"><b><span lang="zh-CN">持续委托</span><span lang="en">Delegate</span></b><span><span lang="zh-CN">设定长期目标与范围，新消息按授权判断是否开工</span><span lang="en">A standing goal and scope, new messages checked against your rules</span></span></button>
+          <button class="cap" type="button"><b><span lang="zh-CN">任务连续</span><span lang="en">Continue</span></b><span><span lang="zh-CN">来源、记录、版本都在，原线程里接着补充</span><span lang="en">Sources, history and versions stay, follow up in the same thread</span></span></button>
+          <button class="cap" type="button"><b><span lang="zh-CN">工具执行</span><span lang="en">Execute</span></b><span><span lang="zh-CN">读资料、做计算、记口径，报告可复核</span><span lang="en">Reads, computes, records definitions, reports you can verify</span></span></button>
+          <button class="cap" type="button"><b><span lang="zh-CN">随时介入</span><span lang="en">Step in</span></b><span><span lang="zh-CN">看步骤与耗时，暂停、接管、再交还</span><span lang="en">See each step, pause, take over, hand back</span></span></button>
+          <button class="cap" type="button"><b><span lang="zh-CN">成果交付</span><span lang="en">Deliver</span></b><span><span lang="zh-CN">回飞书、留 Loom，或授权后发邮箱</span><span lang="en">To Feishu, kept in Loom, or emailed with your OK</span></span></button>
+        </div>
+        <p class="cap-desc" id="capDesc"></p>
+      </div>
+      <div class="device" id="device">
+        <div class="panel on">
+          <div class="ptitle"><b><span lang="zh-CN">整理我的研究记录</span><span lang="en">Tidy up my research notes</span></b><span class="pill ok"><span lang="zh-CN">已启用 · 示例</span><span lang="en">On · Example</span></span></div>
+          <div class="rows">
+            <div class="rowkv"><span><span lang="zh-CN">关注范围</span><span lang="en">Watching</span></span><span><span lang="zh-CN">本人 · 指定测试群</span><span lang="en">Me · one test group</span></span></div>
+            <div class="rowkv"><span><span lang="zh-CN">任务目标</span><span lang="en">Goal</span></span><span><span lang="zh-CN">整理研究结果，保留来源</span><span lang="en">Summarize results, keep sources</span></span></div>
+            <div class="rowkv"><span><span lang="zh-CN">处理方式</span><span lang="en">Mode</span></span><span><span lang="zh-CN">按本人授权自动执行</span><span lang="en">Run automatically, as I allowed</span></span></div>
+            <div class="rowkv"><span><span lang="zh-CN">范围外消息</span><span lang="en">Out of scope</span></span><span><span lang="zh-CN">不用于启动工作</span><span lang="en">Never starts work</span></span></div>
+          </div>
+          <p class="rdesc" style="margin-top:auto"><span lang="zh-CN">只看新消息，信息不足时先问你</span><span lang="en">New messages only, asks when details are missing</span></p>
+        </div>
+        <div class="panel">
+          <div class="ptitle"><b><span lang="zh-CN">多轮 benchmark 汇总</span><span lang="en">Benchmark round-up</span></b><span class="pill"><span lang="zh-CN">独立任务 · 示例</span><span lang="en">Own task · Example</span></span></div>
+          <div class="tl" id="tl"><i class="fill"></i>
+            <div><span lang="zh-CN">明确目标与资料范围</span><span lang="en">Goal and sources confirmed</span><small><span lang="zh-CN">从原始需求保留任务依据</span><span lang="en">Kept from the original request</span></small></div>
+            <div><span lang="zh-CN">读取指定的三份报告</span><span lang="en">Three named reports read</span><small><span lang="zh-CN">来源、执行记录和产物关联在一起</span><span lang="en">Sources, runs and outputs linked</span></small></div>
+            <div><span lang="zh-CN">接收本人的追加要求</span><span lang="en">Your follow-up received</span><small><span lang="zh-CN">在原线程里继续处理</span><span lang="en">Handled in the same thread</span></small></div>
+          </div>
+          <div class="note-me"><span lang="zh-CN">我的补充：重点分析可靠性问题</span><span lang="en">My note: focus on reliability</span></div>
+        </div>
+        <div class="panel">
+          <div class="ptitle"><b><span lang="zh-CN">执行记录</span><span lang="en">Run log</span></b><span class="pill"><span lang="zh-CN">流程示意</span><span lang="en">Illustration</span></span></div>
+          <div class="log" id="log">
+            <div><i><svg class="i"><use href="#i-check"/></svg></i><span><span lang="zh-CN">读取已指定的源文件</span><span lang="en">Read the named source files</span><small><span lang="zh-CN">记录资料与覆盖范围</span><span lang="en">Coverage recorded</span></small></span></div>
+            <div><i><svg class="i"><use href="#i-check"/></svg></i><span><span lang="zh-CN">按明确口径计算</span><span lang="en">Compute to stated definitions</span><small><span lang="zh-CN">去重、排除缺失、核对合计</span><span lang="en">Dedupe, drop gaps, check totals</span></small></span></div>
+            <div><i><svg class="i"><use href="#i-check"/></svg></i><span><span lang="zh-CN">整理结论与来源引用</span><span lang="en">Write findings with citations</span><small><span lang="zh-CN">注明事实、差异和限制</span><span lang="en">Facts, differences and limits noted</span></small></span></div>
+            <div><i><svg class="i"><use href="#i-check"/></svg></i><span><span lang="zh-CN">保存完整报告版本</span><span lang="en">Save the full report version</span><small><span lang="zh-CN">保留计算依据与可交付正文</span><span lang="en">Working and final text kept</span></small></span></div>
+          </div>
+          <p class="rdesc" style="margin-top:auto"><span lang="zh-CN">查看进展不会启动新任务</span><span lang="en">Checking progress never starts new work</span></p>
+        </div>
+        <div class="panel">
+          <div class="ptitle"><b><span lang="zh-CN">研究结果汇总</span><span lang="en">Research summary</span></b><span class="pill"><span lang="zh-CN">控制示意</span><span lang="en">Control demo</span></span></div>
+          <div class="rows">
+            <div class="rowkv"><span><span lang="zh-CN">当前资料</span><span lang="en">Material</span></span><span><span lang="zh-CN">原任务来源与报告版本</span><span lang="en">Original sources and versions</span></span></div>
+            <div class="rowkv"><span><span lang="zh-CN">接管后</span><span lang="en">After takeover</span></span><span><span lang="zh-CN">停止新的受管执行与排队交付</span><span lang="en">New runs and queued sends stop</span></span></div>
+            <div class="rowkv"><span><span lang="zh-CN">人工修改</span><span lang="en">Your edits</span></span><span><span lang="zh-CN">保存为新版本，旧版保留</span><span lang="en">Saved as a new version</span></span></div>
+          </div>
+          <div class="ctl"><div><b id="ctlState"></b><small id="ctlHint"></small></div><button class="btn" type="button" id="ctlBtn"></button></div>
+        </div>
+        <div class="panel">
+          <div class="ptitle"><b><span lang="zh-CN">报告交付方式</span><span lang="en">Report delivery</span></b><span class="pill"><span lang="zh-CN">配置示意</span><span lang="en">Settings demo</span></span></div>
+          <div class="radios" id="radios">
+            <label><input type="radio" name="dl" id="dl-feishu" value="feishu" checked><span><span lang="zh-CN">发回飞书原线程</span><span lang="en">Back to the Feishu thread</span></span></label>
+            <label><input type="radio" name="dl" id="dl-loom" value="loom"><span><span lang="zh-CN">仅保留在 Loom</span><span lang="en">Keep in Loom only</span></span></label>
+            <label><input type="radio" name="dl" id="dl-mail" value="mail"><span><span lang="zh-CN">发送到本人绑定邮箱</span><span lang="en">Email to my verified address</span></span></label>
+          </div>
+          <p class="rdesc" id="dlDesc" style="margin-top:auto"></p>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<!-- CONTEXT -->
+<section class="context wrap" id="context">
+  <p class="eyebrow" data-reveal="up">Context as a shared asset</p>
+  <h2 class="h2" style="margin-top:16px" data-reveal="left"><span lang="zh-CN">让工作上下文<br>持续生长</span><span lang="en">Let context<br>keep growing</span></h2>
+  <div class="ctx-grid">
+    <div style="display:flex;flex-direction:column;gap:20px" data-reveal="up">
+      <p class="lede"><span lang="zh-CN">群聊里形成的判断与约束<br>本身就是资产</span><span lang="en">Judgments and constraints formed in chat<br>are assets too</span></p>
+      <p class="lede" style="color:var(--muted)"><span lang="zh-CN">Loom 在授权范围内留住它们的来路，让下一次工作接着用</span><span lang="en">Loom keeps their trail, within your rules, for the next task</span></p>
+    </div>
+    <div class="rule-card" data-reveal="right">
+      <header><span><span lang="zh-CN">同一项退款工作</span><span lang="en">One refund workstream</span></span><span><span lang="zh-CN">示例</span><span lang="en">Example</span></span></header>
+      <div class="rule"><span><span lang="zh-CN">当前规则</span><span lang="en">Current rule</span></span><b><span lang="zh-CN">按实付金额退款，全额、部分退款都不退券</span><span lang="en">Refund what was paid, never the coupon, full or partial</span></b></div>
+      <div class="rule"><span><span lang="zh-CN">执行约束</span><span lang="en">Constraint</span></span><b><span lang="zh-CN">同一退款单的重复成功回调，只处理一次</span><span lang="en">A duplicate success callback for one refund runs once</span></b></div>
+      <div class="rule"><span><span lang="zh-CN">保留例外</span><span lang="en">Exception kept</span></span><b><span lang="zh-CN">失败之后，仍允许正常重试</span><span lang="en">Normal retries after a failure still go through</span></b></div>
+      <details>
+        <summary><span lang="zh-CN">展开讨论依据与变更过程</span><span lang="en">Show where each rule came from</span></summary>
+        <div class="quotes">
+          <p><small><span lang="zh-CN">产品确认</span><span lang="en">Product</span></small><span lang="zh-CN">“退款按实付金额，优惠券不退，全额、部分退款都一样”</span><span lang="en">“Refund the amount paid, coupons stay used, full or partial”</span></p>
+          <p><small><span lang="zh-CN">开发补充</span><span lang="en">Engineering</span></small><span lang="zh-CN">“支付平台可能重复回调，得保证同一笔退款只成功处理一次”</span><span lang="en">“The payment platform can call back twice, each refund must succeed only once”</span></p>
+          <p><small><span lang="zh-CN">讨论澄清</span><span lang="en">Clarified</span></small><span lang="zh-CN">“别影响正常退款重试，失败后再重试成功，也要覆盖”</span><span lang="en">“Don’t block normal retries, a success after a failure must still count”</span></p>
+        </div>
+      </details>
+    </div>
+  </div>
+  <div class="closer">
+    <p class="eyebrow" data-reveal="up">Closer to the way people work</p>
+    <p class="closer-say" data-reveal="scale"><span lang="zh-CN">Agent 要把事情做好<br>就需要更接近人的<br><span class="accent">实际工作环境</span></span><span lang="en">To do the work well<br>an agent has to get closer to<br><span class="accent">where people actually work</span></span></p>
+    <p class="lede" data-reveal="up"><span lang="zh-CN">原始讨论、文档版本、任务与成果连在一起，它才知道要做什么、为什么这样做、哪些条件已经变了</span><span lang="en">With discussions, document versions, tasks and results linked, it knows what to do, why, and what has changed</span></p>
+  </div>
+</section>
+
+<section class="pin ring-sec" data-scene="ring">
+  <div class="stage"><div class="wrap stage-in">
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <p class="eyebrow">A direction for compounding value</p>
+      <h3 class="h3"><span lang="zh-CN">每一次工作<br>都为下一次留下依据</span><span lang="en">Every task<br>leaves ground for the next</span></h3>
+      <p class="lede" style="font-size:17px"><span lang="zh-CN">约束不遗漏，变更可追溯，成果被复用</span><span lang="en">Constraints kept, changes traced, work reused</span></p>
+      <p class="small"><span lang="zh-CN">已保留来源与版本，跨任务记忆仍在探索</span><span lang="en">Sources and versions are kept today, cross-task memory is still being explored</span></p>
+    </div>
+    <div class="ring" id="ring">
+      <svg viewBox="0 0 400 400" aria-hidden="true"><circle class="track-c" cx="200" cy="200" r="160"/><circle class="prog-c" id="ringProg" cx="200" cy="200" r="160" transform="rotate(-90 200 200)"/></svg>
+      <div class="ring-rot" id="ringRot"></div>
+      <div class="ring-center"><span lang="zh-CN">工作<br><span class="accent">越用越顺手</span></span><span lang="en">Work that<br><span class="accent">gets easier</span></span></div>
+    </div>
+  </div></div>
+</section>
+
+<section class="wrap pillars">
+  <div class="pillar" data-reveal="up"><h3><span lang="zh-CN">保留语义的来路</span><span lang="en">Keep the trail of meaning</span></h3><p><span lang="zh-CN">结论连着原始讨论与文件版本，随时回到来源核对</span><span lang="en">Conclusions link back to discussions and file versions</span></p></div>
+  <div class="pillar" data-reveal="up" data-delay="1"><h3><span lang="zh-CN">维护仍然有效的共识</span><span lang="en">Keep agreements current</span></h3><p><span lang="zh-CN">分清建议、决定与过期规则，知道现在该按什么来</span><span lang="en">Suggestions, decisions and retired rules stay distinct</span></p></div>
+  <div class="pillar" data-reveal="up" data-delay="2"><h3><span lang="zh-CN">共同建设工作环境</span><span lang="en">Build the environment together</span></h3><p><span lang="zh-CN">Agent 提出文档与清单的改进，经你确认再回到环境里</span><span lang="en">The agent proposes better docs and checklists, you approve them</span></p></div>
+</section>
+
+<div class="scenes-wrap" id="scenesWrap">
+<!-- SCENES INTRO -->
+<section class="scenes-intro wrap" id="scenes">
+  <p class="eyebrow" data-reveal="up">Work, in practice</p>
+  <h2 class="h2" data-reveal="scale"><span lang="zh-CN">四个场景<br>同一条工作路径</span><span lang="en">Four scenes<br>One way of working</span></h2>
+  <p class="lede" data-reveal="up"><span lang="zh-CN">从办公室到家里，从高频、交付明确的事做起</span><span lang="en">From office to home, starting with frequent work and clear results</span></p>
+  <p class="small" style="margin-top:16px" data-reveal="up"><span lang="zh-CN">以下演示均为示意回放，人物与数据皆为虚构</span><span lang="en">The demos below are illustrative replays with fictional people and data</span></p>
+</section>
+
+<div class="scene-tabs" role="tablist" aria-label="Scenes">
+  <div class="tabs-in">
+    <button type="button" role="tab" data-tab="1" aria-selected="true"><i>01</i><span lang="zh-CN">群聊协作</span><span lang="en">Group chat</span></button>
+    <button type="button" role="tab" data-tab="2" aria-selected="false"><i>02</i><span lang="zh-CN">招聘筛选</span><span lang="en">Hiring</span></button>
+    <button type="button" role="tab" data-tab="3" aria-selected="false"><i>03</i><span lang="zh-CN">日常办公</span><span lang="en">Office</span></button>
+    <button type="button" role="tab" data-tab="4" aria-selected="false"><i>04</i><span lang="zh-CN">智能家居</span><span lang="en">Home</span></button>
+  </div>
+</div>
+<!-- SCENE A : group chat -->
+<section class="pin scene chat-scene" data-tab="1" style="--len:290vh" data-scene="chat">
+  <div class="stage"><div class="wrap stage-in">
+    <div class="scene-copy">
+      <p class="eyebrow">Scene 01 · Group chat</p>
+      <h3 class="h3"><span lang="zh-CN">同一个群里<br>接着聊</span><span lang="en">Keep talking<br>in the same group</span></h3>
+      <div class="seg" role="group" aria-label="Compare">
+        <button type="button" id="modeLoom" aria-pressed="true"><span lang="zh-CN">使用 Loom</span><span lang="en">With Loom</span></button>
+        <button type="button" id="modeSolo" aria-pressed="false"><span lang="zh-CN">没有 Loom</span><span lang="en">Without Loom</span></button>
+      </div>
+      <div class="steps" id="chatSteps">
+        <div class="step on" data-for="loom"><span lang="zh-CN">规则在讨论里一句句补全</span><span lang="en">The rules take shape one message at a time</span></div>
+        <div class="step" data-for="loom"><span lang="zh-CN">各自的助手跟着讨论更新</span><span lang="en">Each assistant follows along and updates</span></div>
+        <div class="step" data-for="loom"><span lang="zh-CN">产物按最新共识交付回群</span><span lang="en">Deliverables land in the chat, aligned with the latest decisions</span></div>
+        <div class="step" data-for="solo" hidden><span lang="zh-CN">文档发出去，各自丢给 AI</span><span lang="en">The doc goes out, everyone feeds their own AI</span></div>
+        <div class="step" data-for="solo" hidden><span lang="zh-CN">群里的补充没跟上</span><span lang="en">The follow-ups in the chat never reach it</span></div>
+        <div class="step" data-for="solo" hidden><span lang="zh-CN">只好重新整理上下文，再来一遍</span><span lang="en">So everyone rebuilds context and starts again</span></div>
+      </div>
+      <p class="foot-note"><span lang="zh-CN">多人多助手为后续探索，当前服务单个用户</span><span lang="en">Multi-assistant teamwork is future work, today Loom serves one person</span></p>
+    </div>
+    <div class="chat-zone">
+      <div class="chatw">
+        <div class="chat-top"><span class="gicon"><svg class="i"><use href="#i-chat"/></svg></span><div><b><span lang="zh-CN">订单项目 · 需求讨论</span><span lang="en">Orders project · Requirements</span></b><small id="chatMembers"></small></div></div>
+        <div class="feed" id="feed" aria-live="polite"></div>
+        <div class="typing" id="typing"><i></i><i></i><i></i><span id="typingText"></span></div>
+      </div>
+      <div class="arts" id="arts">
+        <div class="art"><span class="pill" data-p></span><b><span lang="zh-CN">订单退款 PRD v1.1</span><span lang="en">Refund PRD v1.1</span></b><small><span lang="zh-CN">退款规则与幂等验收</span><span lang="en">Refund rules and idempotency checks</span></small></div>
+        <div class="art"><span class="pill" data-p></span><b><span lang="zh-CN">退款开发方案.md</span><span lang="en">refund-dev-plan.md</span></b><small><span lang="zh-CN">实付退款 · 不退券 · 回调幂等 · 失败重试</span><span lang="en">Paid amount · no coupon · idempotent callbacks · retries</span></small></div>
+        <div class="art"><span class="pill" data-p></span><b><span lang="zh-CN">退款测试用例.xlsx</span><span lang="en">refund-test-cases.xlsx</span></b><small><span lang="zh-CN">规则 · 边界 · 并发回调 · 失败后重试</span><span lang="en">Rules · edges · concurrent callbacks · retry after failure</span></small></div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<!-- SCENE B : resumes -->
+<section class="pin scene resume-scene" data-tab="2" hidden style="--len:270vh" data-scene="resume">
+  <div class="stage"><div class="wrap stage-in">
+    <div class="scene-copy">
+      <p class="eyebrow">Scene 02 · Recruiting</p>
+      <h3 class="h3"><span lang="zh-CN">简历进群<br>筛选入表</span><span lang="en">Resumes in the chat<br>Results in the table</span></h3>
+      <div class="steps" id="resSteps">
+        <div class="step on"><span lang="zh-CN">拍照，发到群里</span><span lang="en">Snap and send to the chat</span></div>
+        <div class="step"><span lang="zh-CN">识别、合并，看不清就等补拍</span><span lang="en">Read, merge, wait for retakes</span></div>
+        <div class="step"><span lang="zh-CN">交给已有的筛简历 Agent</span><span lang="en">Hand off to your screening agent</span></div>
+        <div class="step"><span lang="zh-CN">建议和依据，一起入表</span><span lang="en">Suggestion and evidence, one row</span></div>
+      </div>
+      <p class="foot-note"><span lang="zh-CN">初筛只是建议，最终判断由招聘人员完成</span><span lang="en">Screening is a suggestion, recruiters make the call</span></p>
+    </div>
+    <div class="bench">
+      <div class="papers" id="papers">
+        <div class="paper"><strong><span lang="zh-CN">陈予安</span><span lang="en">Chen Yu’an</span></strong><em>React · TypeScript</em><i class="l"></i><i class="l s"></i><i class="l"></i><em><span lang="zh-CN">项目经历</span><span lang="en">Projects</span></em><i class="l"></i><i class="l s"></i><div class="fields"><b>React</b><b>TS</b><b><span lang="zh-CN">2 页</span><span lang="en">2 pages</span></b></div></div>
+        <div class="paper"><strong><span lang="zh-CN">林知远</span><span lang="en">Lin Zhiyuan</span></strong><em>Vue · JavaScript</em><i class="l"></i><i class="l s"></i><i class="l"></i><em><span lang="zh-CN">工作经历</span><span lang="en">Experience</span></em><i class="l"></i><i class="l s"></i><div class="fields"><b>Vue</b><b>JS</b></div></div>
+        <div class="paper" id="blurPaper"><strong><span lang="zh-CN">周可宁</span><span lang="en">Zhou Kening</span></strong><em>React · TS</em><i class="l"></i><i class="l s"></i><i class="l"></i><em><span lang="zh-CN">性能优化</span><span lang="en">Performance</span></em><i class="l"></i><i class="l s"></i><span class="stamp" id="stamp"></span><div class="fields"><b>React</b><b>TS</b></div></div>
+        <div class="beam" id="beam" aria-hidden="true"></div>
+      </div>
+      <div class="agent-row" id="agentRow"><i class="dot"></i><span lang="zh-CN">企业筛简历 Agent · 按岗位要求 v1.2 初筛</span><span lang="en">Your screening agent · checking against role spec v1.2</span></div>
+      <div class="base">
+        <div class="base-top"><svg class="i"><use href="#i-grid"/></svg><div><b><span lang="zh-CN">候选人初筛记录</span><span lang="en">Candidate screening</span></b> <small><span lang="zh-CN">飞书多维表格 · 前端工程师</span><span lang="en">Feishu Base · Front-end engineer</span></small></div><span class="sync" id="sync"></span></div>
+        <div class="tscroll"><table>
+          <thead><tr><th><span lang="zh-CN">候选人</span><span lang="en">Candidate</span></th><th class="col-hide"><span lang="zh-CN">岗位相关证据</span><span lang="en">Evidence</span></th><th><span lang="zh-CN">初筛建议</span><span lang="en">Suggestion</span></th><th><span lang="zh-CN">待确认</span><span lang="en">To confirm</span></th></tr></thead>
+          <tbody id="rows">
+            <tr><td><strong><span lang="zh-CN">陈予安</span><span lang="en">Chen Yu’an</span></strong><small>CV-001</small></td><td class="col-hide"><span lang="zh-CN">React / TypeScript，组件库与测试</span><span lang="en">React / TypeScript, component library, tests</span></td><td><span class="tg a"><span lang="zh-CN">建议推进</span><span lang="en">Advance</span></span></td><td><small><span lang="zh-CN">个人贡献，面试确认</span><span lang="en">Personal contribution</span></small></td></tr>
+            <tr><td><strong><span lang="zh-CN">林知远</span><span lang="en">Lin Zhiyuan</span></strong><small>CV-002</small></td><td class="col-hide"><span lang="zh-CN">Vue / JavaScript，业务页面开发</span><span lang="en">Vue / JavaScript, product pages</span></td><td><span class="tg b"><span lang="zh-CN">待补充</span><span lang="en">Need info</span></span></td><td><small><span lang="zh-CN">React / TS 项目证据</span><span lang="en">React / TS evidence</span></small></td></tr>
+            <tr><td><strong><span lang="zh-CN">周可宁</span><span lang="en">Zhou Kening</span></strong><small>CV-003</small></td><td class="col-hide"><span lang="zh-CN">React / TS，组件维护与性能优化</span><span lang="en">React / TS, upkeep and performance work</span></td><td><span class="tg c"><span lang="zh-CN">建议复核</span><span lang="en">Review</span></span></td><td><small><span lang="zh-CN">优化指标与责任范围</span><span lang="en">Metrics and ownership</span></small></td></tr>
+          </tbody>
+        </table></div>
+        <div class="base-foot" id="baseFoot"></div>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<!-- SCENE C : office -->
+<section class="pin scene office" data-tab="3" hidden style="--len:190vh" data-scene="office">
+  <div class="stage"><div class="wrap stage-in">
+    <div class="scene-copy">
+      <p class="eyebrow">Scene 03 · Everyday work</p>
+      <h3 class="h3"><span lang="zh-CN">一句话<br>一份交付</span><span lang="en">One sentence<br>One deliverable</span></h3>
+      <div class="ask" id="ask"><small><span lang="zh-CN">飞书 · 项目讨论</span><span lang="en">Feishu · Project thread</span></small><span lang="zh-CN">我觉得可以总结一下这几轮 benchmark，汇总一下结果</span><span lang="en">Could we sum up these benchmark rounds and pull the results together</span></div>
+      <div class="pipe" id="pipe">
+        <b><span lang="zh-CN">指定资料</span><span lang="en">Named sources</span></b><i></i>
+        <b><span lang="zh-CN">计算与核对</span><span lang="en">Compute & check</span></b><i></i>
+        <b><span lang="zh-CN">完整报告</span><span lang="en">Full report</span></b><i></i>
+        <b><span lang="zh-CN">回到飞书</span><span lang="en">Back in Feishu</span></b>
+      </div>
+      <p class="foot-note"><span lang="zh-CN">内测已跑通，报告外观为示意</span><span lang="en">Proven in our pilot, report layout is a sketch</span></p>
+    </div>
+    <div class="doc-wrap">
+      <article class="doc" id="doc">
+        <div class="dk"><span>RESEARCH / BENCHMARK</span><i>Loom.</i></div>
+        <h4><span lang="zh-CN">多轮评测结果汇总</span><span lang="en">Benchmark rounds, summarized</span></h4>
+        <div class="kv">
+          <span><span lang="zh-CN">来源 · 口径 · 计算依据</span><span lang="en">Sources · definitions · working</span></span>
+          <span><span lang="zh-CN">重点分析：结果变化与可靠性</span><span lang="en">Focus: changes and reliability</span></span>
+          <span><span lang="zh-CN">区分可比指标与口径差异</span><span lang="en">Comparable metrics vs definition gaps</span></span>
+        </div>
+        <i class="ln o" style="width:38%"></i><i class="ln"></i><i class="ln" style="width:86%"></i><i class="ln" style="width:92%"></i><i class="ln" style="width:64%"></i><i class="ln"></i><i class="ln" style="width:72%"></i>
+        <div class="meta"><span>MARKDOWN REPORT · v2</span><span><span lang="zh-CN">版本与来源可追溯</span><span lang="en">Versioned, sourced</span></span></div>
+      </article>
+    </div>
+  </div></div>
+</section>
+
+<section class="uses wrap" data-tab="3" hidden data-scene="uses" data-mode="pass">
+  <div class="uses-grid">
+    <article class="use"><span class="tagline"><span lang="zh-CN">总结与纪要</span><span lang="en">Summaries</span></span><h3><span lang="zh-CN">零散记录<br>整理成待审阅草稿</span><span lang="en">Scattered notes<br>become a draft to review</span></h3><p><span lang="zh-CN">只看指定范围，结论标明来源</span><span lang="en">Your scope only, every point sourced</span></p><q><span lang="zh-CN">“按已完成、阻碍、下一步，整理今天的工作记录”</span><span lang="en">“Sort today’s notes into done, blocked and next”</span></q></article>
+    <article class="use"><span class="tagline"><span lang="zh-CN">数据汇总</span><span lang="en">Data</span></span><h3><span lang="zh-CN">有口径<br>也有依据</span><span lang="en">Clear definitions<br>Checkable numbers</span></h3><p><span lang="zh-CN">按明确口径精确汇总，保留来源快照</span><span lang="en">Exact totals to a stated definition, snapshots kept</span></p><q><span lang="zh-CN">“按渠道汇总金额，按编号去重，报告合计与排除情况”</span><span lang="en">“Total by channel, dedupe by ID, show what was excluded”</span></q></article>
+    <article class="use"><span class="tagline"><span lang="zh-CN">资料查阅</span><span lang="en">Research</span></span><h3><span lang="zh-CN">结论带引用<br>限制写清楚</span><span lang="en">Answers with citations<br>Limits in plain sight</span></h3><p><span lang="zh-CN">只读获准的资料，标出覆盖不到的地方</span><span lang="en">Reads only what you allow, flags what it couldn’t reach</span></p><q><span lang="zh-CN">“读一下这份公开说明，整理依赖、限制和相关内容”</span><span lang="en">“Read this public spec, list dependencies, limits and what applies to us”</span></q></article>
+  </div>
+</section>
+
+<!-- SCENE D : home -->
+<section class="pin scene home-scene" data-tab="4" hidden style="--len:270vh" data-scene="home">
+  <div class="stage"><div class="wrap stage-in">
+    <div class="scene-copy">
+      <p class="eyebrow">Scene 04 · Smart home</p>
+      <h3 class="h3"><span lang="zh-CN">出门之后<br>家里的事有着落</span><span lang="en">Once you leave<br>home has it handled</span></h3>
+      <div class="clock" aria-live="off"><span id="homeClock">08:20</span><small id="homePhase"></small></div>
+      <div class="steps" id="homeSteps">
+        <div class="step on"><span lang="zh-CN">出门前，一句话安排两件事</span><span lang="en">Before leaving, one message sets two tasks</span></div>
+        <div class="step"><span lang="zh-CN">离家后，清洁自己开始</span><span lang="en">After you leave, cleaning starts on its own</span></div>
+        <div class="step"><span lang="zh-CN">19:00，客厅提前变凉</span><span lang="en">At 19:00, the living room cools down</span></div>
+        <div class="step"><span lang="zh-CN">回家后，习惯先问你</span><span lang="en">Back home, habits ask you first</span></div>
+      </div>
+      <p class="foot-note"><span lang="zh-CN">概念演示，家庭、设备与习惯记录均为模拟，未连接真实硬件</span><span lang="en">Concept demo, home, devices and habits are simulated</span></p>
+    </div>
+    <div class="board">
+      <div class="sky">
+        <svg viewBox="0 0 600 92" preserveAspectRatio="none" aria-hidden="true"><path class="arc" d="M20 88 Q300 -40 580 88"/><line class="hz" x1="0" y1="88" x2="600" y2="88"/></svg><i class="sundot" id="sun"></i>
+        <div class="sky-label"><span><span lang="zh-CN">家中的 AI 盒子</span><span lang="en">Home AI box</span></span><b id="homeWho"></b></div>
+      </div>
+      <div class="board-body">
+        <div class="dele">
+          <h4><span><span lang="zh-CN">今天的委托</span><span lang="en">Today’s delegations</span></span><span id="deleCount"></span></h4>
+          <div class="ditem" id="dAc"><span class="ic">AC</span><div><b><span lang="zh-CN">19:00 帮我打开空调</span><span lang="en">Turn on the AC at 19:00</span></b><small><span lang="zh-CN">客厅 · 制冷 26°C · 到时再开始</span><span lang="en">Living room · cool 26°C · on time</span></small></div></div>
+          <div class="ditem" id="dClean"><span class="ic">⌂</span><div><b><span lang="zh-CN">出门后做一次全屋清洁</span><span lang="en">Clean the home after I leave</span></b><small><span lang="zh-CN">扫地机器人 · 离家事件触发</span><span lang="en">Robot vacuum · on leaving</span></small></div></div>
+        </div>
+        <div class="plan" aria-hidden="true">
+          <svg viewBox="0 0 220 150">
+            <rect class="room" x="10" y="10" width="120" height="130" rx="6"/><rect class="room" x="130" y="10" width="80" height="70" rx="6"/><rect class="room" x="130" y="80" width="80" height="60" rx="6"/>
+            <text class="rl" x="18" y="24">客厅 · Living</text><text class="rl" x="138" y="24">卧室 · Bed</text><text class="rl" x="138" y="94">书房 · Study</text>
+            <rect class="ac" id="acUnit" x="100" y="16" width="24" height="8" rx="3"/>
+            <path class="cool" id="cool1" d="M104 30 q8 8 0 16"/><path class="cool" id="cool2" d="M114 30 q8 10 0 22"/>
+            <path class="path" id="robotPath" d="M30 128 H118 V112 H30 V96 H118 V80 H30 V64 H118 V48 H30 V36 H118 L150 36 H200 V66 H150 L150 100 H200 V128 H150"/>
+            <circle class="bot" id="robot" cx="30" cy="128" r="6"/>
+          </svg>
+        </div>
+      </div>
+      <div class="lanes">
+        <div class="lane"><div class="lane-top"><code>HOME-CLEAN-01</code><span class="pill" id="pClean"></span></div><b><span lang="zh-CN">离家后的全屋清洁</span><span lang="en">Whole-home clean</span></b><div class="ldots" id="ldClean"><i></i><i></i><i></i><i></i></div><p class="st" id="sClean"></p></div>
+        <div class="lane"><div class="lane-top"><code>HOME-AC-01</code><span class="pill" id="pAc"></span></div><b><span lang="zh-CN">19:00 的客厅制冷</span><span lang="en">Living room cooling</span></b><div class="ldots" id="ldAc"><i></i><i></i><i></i></div><p class="st" id="sAc"></p></div>
+      </div>
+      <div class="habit" id="habit"><span class="big">26°C</span><b><span lang="zh-CN">把今天的安排，变成工作日习惯？</span><span lang="en">Make today a weekday routine?</span></b><small><span lang="zh-CN">近 7 日 6 次开机有 5 次选 26°C · 只是建议，确认后才启用</span><span lang="en">26°C in 5 of 6 recent uses · a suggestion until you confirm</span></small></div>
+    </div>
+  </div></div>
+</section>
+
+</div>
+
+<!-- VALUE -->
+<section class="value">
+  <div class="wrap">
+    <p class="eyebrow" data-reveal="up">The value we measure</p>
+    <h2 class="h2" style="margin-top:16px" data-reveal="scale"><span lang="zh-CN">让价值落到<br>每一项完成的工作上</span><span lang="en">Value counted<br>one finished task at a time</span></h2>
+    <p class="lede" style="margin-top:24px" data-reveal="up"><span lang="zh-CN">既看总成本，也看上下文的质量</span><span lang="en">Total cost, and the quality of context</span></p>
+    <div class="vgrid">
+      <div class="vcard" data-reveal="flip"><b><span lang="zh-CN">识别准确性</span><span lang="en">Recognition</span></b><p><span lang="zh-CN">值得处理的需求，是否被正确识别</span><span lang="en">Are the right requests picked up</span></p></div>
+      <div class="vcard" data-reveal="flip" data-delay="1"><b><span lang="zh-CN">任务完成</span><span lang="en">Completion</span></b><p><span lang="zh-CN">明确的工作目标，是否真正推进</span><span lang="en">Do clear goals actually move forward</span></p></div>
+      <div class="vcard" data-reveal="flip" data-delay="2"><b><span lang="zh-CN">成果采用</span><span lang="en">Adoption</span></b><p><span lang="zh-CN">交付物能不能直接用进后续工作</span><span lang="en">Can the deliverable go straight into the next step</span></p></div>
+      <div class="vcard" data-reveal="flip" data-delay="1"><b><span lang="zh-CN">介入成本</span><span lang="en">Intervention</span></b><p><span lang="zh-CN">需要多少次补充、检查与纠正</span><span lang="en">How many nudges, checks and fixes it takes</span></p></div>
+      <div class="vcard" data-reveal="flip" data-delay="2"><b><span lang="zh-CN">单项成本</span><span lang="en">Cost per task</span></b><p><span lang="zh-CN">一项有效任务要花多少时间和算力</span><span lang="en">Time and compute per useful task</span></p></div>
+      <div class="vcard" data-reveal="flip" data-delay="3"><b><span lang="zh-CN">上下文质量</span><span lang="en">Context quality</span></b><p><span lang="zh-CN">关键约束有没有漏，变更能否追溯</span><span lang="en">Nothing critical lost, every change traceable</span></p></div>
+    </div>
+    <div class="roles" data-reveal="up"><em><span lang="zh-CN">先服务飞书里事情最多的人</span><span lang="en">First for the busiest people in Feishu</span></em><span><span lang="zh-CN">研发</span><span lang="en">Engineering</span></span><span><span lang="zh-CN">产品</span><span lang="en">Product</span></span><span><span lang="zh-CN">运营</span><span lang="en">Operations</span></span><span><span lang="zh-CN">业务分析</span><span lang="en">Business analysis</span></span></div>
+    <p class="small"><span lang="zh-CN">以上为后续验证指标，暂无对外的规模化数据</span><span lang="en">Validation measures ahead, no large-scale results published yet</span></p>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section class="roadmap wrap" id="roadmap" data-scene="roadmap" data-mode="pass">
+  <p class="eyebrow">Current stage · Personal pilot</p>
+  <h2 class="h2" style="margin-top:16px"><span lang="zh-CN">从可运行<br>走向可信赖</span><span lang="en">From working<br>to trustworthy</span></h2>
+  <div class="rm-line"><i id="rmLine"></i></div>
+  <div class="rm-cols">
+    <div class="rm-col"><span class="k">Now</span><h3><span lang="zh-CN">已打通的个人工作路径</span><span lang="en">A working personal path</span></h3><ul>
+      <li><span lang="zh-CN">飞书消息接入与持续委托</span><span lang="en">Feishu intake and standing delegations</span></li>
+      <li><span lang="zh-CN">观察与自动处理两种模式</span><span lang="en">Observe and auto modes</span></li>
+      <li><span lang="zh-CN">任务执行、进展与人工控制</span><span lang="en">Execution, progress and manual control</span></li>
+      <li><span lang="zh-CN">报告版本、导出与交付</span><span lang="en">Report versions, export and delivery</span></li></ul></div>
+    <div class="rm-col"><span class="k">Next</span><h3><span lang="zh-CN">持续验证与完善</span><span lang="en">Validating and refining</span></h3><ul>
+      <li><span lang="zh-CN">自主需求识别的质量</span><span lang="en">Quality of proactive recognition</span></li>
+      <li><span lang="zh-CN">执行效率与成果可用性</span><span lang="en">Speed and usefulness of results</span></li>
+      <li><span lang="zh-CN">新用户配置与依赖安装</span><span lang="en">Setup and installs for new users</span></li>
+      <li><span lang="zh-CN">更多任务与异常恢复验收</span><span lang="en">More tasks and recovery testing</span></li></ul></div>
+    <div class="rm-col"><span class="k">Later</span><h3><span lang="zh-CN">后续探索方向</span><span lang="en">Exploring next</span></h3><ul>
+      <li><span lang="zh-CN">多人及独立助手协同</span><span lang="en">Many people, many assistants</span></li>
+      <li><span lang="zh-CN">跨设备与云端执行</span><span lang="en">Cross-device and cloud runs</span></li>
+      <li><span lang="zh-CN">按权限复用的共享上下文</span><span lang="en">Shared context, reused by permission</span></li>
+      <li><span lang="zh-CN">身份、隔离与授权的配套</span><span lang="en">Matching identity, isolation and access</span></li></ul></div>
+  </div>
+  <p class="small"><span lang="zh-CN">以上流程已完成实际联调，不代表所有场景都已稳定</span><span lang="en">These flows are tested for real, not every scenario is stable yet</span></p>
+</section>
+
+<section class="trust wrap">
+  <div class="trust-box" data-reveal="scale">
+    <h2 class="h3"><span lang="zh-CN">授权与控制<br>是体验的一部分</span><span lang="en">Permission and control<br>are part of the experience</span></h2>
+    <p><span lang="zh-CN">来源、模式和去向由你决定<br>暂停、接管和撤权，都会约束后续执行</span><span lang="en">You choose sources, modes and destinations<br>Pause, take over or revoke, and what runs next follows</span></p>
+  </div>
+</section>
+
+<section class="closing" data-scene="closing" data-mode="pass">
+  <svg class="thread" viewBox="0 0 1440 240" preserveAspectRatio="none" aria-hidden="true"><path id="threadPath" d="M-20 150 C 160 40, 300 220, 470 120 S 760 30, 900 140 S 1180 230, 1460 90"/></svg>
+  <div class="wrap">
+    <p class="brand" style="justify-content:center;margin-bottom:20px"><b style="font-size:44px">Loom<i>.</i></b></p>
+    <h2 class="h2"><span lang="zh-CN">接得住工作<br><span class="accent">也让人随时接得上</span></span><span lang="en">Picks up the work<br><span class="accent">and lets you pick it back up</span></span></h2>
+    <p class="lede"><span lang="zh-CN">让积累下来的理解，持续发挥价值</span><span lang="en">So what you build up keeps paying off</span></p>
+    <div class="chips">
+      <span class="chip"><a href="https://github.com/deepseek-ai/dsh-superagent-prototype" target="_blank" rel="noopener"><span lang="zh-CN">开源架构参考 ↗</span><span lang="en">Open architecture reference ↗</span></a></span>
+      <span class="chip"><a href="https://www.bestblogs.dev/article/bdcf6ab3ac" target="_blank" rel="noopener"><span lang="zh-CN">Super-agent 设计探索 ↗</span><span lang="en">Super-agent design essay ↗</span></a></span>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="ft"><div class="wrap ft-in">
+  <span>Loom · LUXI 陆兮 · <span lang="zh-CN">产品介绍 2026 年 11 月</span><span lang="en">Product brief, November 2026</span></span>
+  <span><span lang="zh-CN">演示均为示意，人物与记录皆为虚构</span><span lang="en">All demos are illustrations with fictional people and records</span></span>
+</div></footer>
+
+<script>
+(function(){
+'use strict';
+var root=document.documentElement;
+var reduce=window.matchMedia('(prefers-reduced-motion: reduce)');
+function $(id){return document.getElementById(id)}
+function clamp(v,a,b){if(a===undefined){a=0;b=1}return v<a?a:v>b?b:v}
+function seg(p,a,b){return clamp((p-a)/(b-a))}
+function ease(t){return 1-Math.pow(1-t,3)}
+function lang(){return root.dataset.lang==='en'?'en':'zh'}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function bi(zh,en){return '<span lang="zh-CN">'+esc(zh)+'</span><span lang="en">'+esc(en)+'</span>'}
+function store(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+
+/* ---------- language + theme ---------- */
+$('langBtn').addEventListener('click',function(){
+  var next=lang()==='en'?'zh':'en';root.dataset.lang=next;root.lang=next==='en'?'en':'zh-CN';store('loom-lang',next);
+  refreshAll();
+});
+var themes=['system','light','dark'];
+function themeNow(){return root.dataset.theme||'system'}
+function paintThemeBtn(){var t=themeNow();var icon=t==='light'?'i-sun':t==='dark'?'i-moon':'i-auto';
+  $('themeBtn').innerHTML='<svg class="i"><use href="#'+icon+'"/></svg>';
+  $('themeBtn').setAttribute('aria-label',(lang()==='en'?'Theme: ':'外观：')+({system:lang()==='en'?'system':'跟随系统',light:lang()==='en'?'light':'浅色',dark:lang()==='en'?'dark':'深色'})[t]);}
+$('themeBtn').addEventListener('click',function(){
+  var t=themes[(themes.indexOf(themeNow())+1)%3];
+  if(t==='system')root.removeAttribute('data-theme');else root.dataset.theme=t;
+  store('loom-theme',t==='system'?'':t);paintThemeBtn();weave.colors();weave.draw();
+});
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){weave.colors();weave.draw()});
+
+/* ---------- scroll engine ---------- */
+var scenes=[];
+function reg(el,fn,mode){if(el)scenes.push({el:el,fn:fn,mode:mode||(el.classList.contains('pin')?'pin':'pass'),last:-1})}
+function prog(s){var r=s.el.getBoundingClientRect(),vh=window.innerHeight;
+  if(s.mode==='pin'){var t=r.height-vh;return t<=0?1:clamp(-r.top/t)}
+  return clamp((vh-r.top)/(vh*0.8))}
+var ticking=false;
+function frame(force){ticking=false;for(var i=0;i<scenes.length;i++){var s=scenes[i];var p=reduce.matches?1:prog(s);if(force||Math.abs(p-s.last)>0.0004){s.last=p;s.fn(p,s.el)}}navSpy()}
+window.addEventListener('scroll',function(){if(!ticking){ticking=true;requestAnimationFrame(function(){frame(false)})}},{passive:true});
+window.addEventListener('resize',function(){weave.resize();frame(true)});
+function refreshAll(){paintThemeBtn();renderChat(true);fillStatic();frame(true)}
+
+/* ---------- hero weave ---------- */
+var weave=(function(){
+  var cv=$('weave'),ctx=cv.getContext('2d'),W=0,H=0,dpr=1,wp=.38,col={};
+  function colors(){var cs=getComputedStyle(root);col.warp=cs.getPropertyValue('--warp').trim();col.weft=cs.getPropertyValue('--weft').trim();col.accent=cs.getPropertyValue('--accent').trim();col.bg=cs.getPropertyValue('--bg').trim()}
+  function resize(){var r=cv.getBoundingClientRect();dpr=Math.min(window.devicePixelRatio||1,2);W=r.width;H=r.height;cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);draw()}
+  function draw(){
+    if(!W)return;ctx.clearRect(0,0,W,H);
+    var g=W<700?15:19,cols=Math.ceil(W/g)+1,rows=Math.ceil(H/g)+1,th=g*.44;
+    ctx.fillStyle=col.warp;
+    for(var c=0;c<cols;c++)ctx.fillRect(c*g+g/2-.75,0,1.5,H);
+    for(var r=0;r<rows;r++){
+      var y=r*g+g/2,delay=((r*0.618)%1)*.42,rp=clamp((wp-delay)/(1-.42)),xEnd=rp*(W+g);
+      var hot=(r%9===4);ctx.fillStyle=hot?col.accent:col.weft;
+      for(var k=0;k<cols;k++){var x0=k*g;if(x0>xEnd)break;if((r+k)%2===0){var w=Math.min(g,xEnd-x0);ctx.fillRect(x0,y-th/2,w,th)}}
+      if(rp>0&&rp<1){ctx.fillStyle=col.accent;var sx=xEnd;ctx.beginPath();ctx.ellipse(sx,y,g*.9,th*.55,0,0,Math.PI*2);ctx.fill()}
+    }
+    ctx.globalCompositeOperation='destination-out';
+    var cx=W/2,cy=H*.5,rad=Math.max(W*.42,H*.5),grd=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
+    grd.addColorStop(0,'rgba(0,0,0,.97)');grd.addColorStop(.55,'rgba(0,0,0,.85)');grd.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=grd;ctx.fillRect(0,0,W,H);ctx.globalCompositeOperation='source-over';
+  }
+  return{colors:colors,resize:resize,draw:draw,set:function(v){wp=v;draw()}};
+})();
+weave.colors();
+reg(document.querySelector('.hero'),function(p){
+  weave.set(.38+.62*ease(seg(p,0,.85)));
+  var hc=$('heroCopy'),q=seg(p,.15,1);
+  hc.style.transform='translateY('+(-q*8)+'vh) scale('+(1-q*.14)+')';hc.style.opacity=String(1-seg(p,.55,1)*.85);
+});
+
+/* ---------- statement split ---------- */
+document.querySelectorAll('[data-split]').forEach(function(el){
+  var en=el.getAttribute('lang')==='en',lines=el.textContent.trim().split('|'),html='';
+  lines.forEach(function(line,li){var hot=line.charAt(0)==='*';if(hot)line=line.slice(1);
+    var parts=en?line.split(/(\s+)/):Array.from(line);
+    parts.forEach(function(t){if(/^\s+$/.test(t)){html+=t;return}html+='<span class="w'+(hot?' hot':'')+'">'+esc(t)+'</span>'});
+    if(li<lines.length-1)html+='<br>'});
+  el.innerHTML=html;
+});
+reg(document.querySelector('.statement'),function(p,el){
+  el.querySelectorAll('.say').forEach(function(s){
+    var ws=s.querySelectorAll('.w'),n=ws.length,lit=seg(p,.08,.8)*n;
+    for(var i=0;i<n;i++)ws[i].classList.toggle('lit',i<lit);
+    s.style.transform='translateY('+((1-ease(seg(p,0,.4)))*30)+'px)';
+  });
+});
+
+/* ---------- principles horizontal ---------- */
+reg(document.querySelector('.principles'),function(p){
+  var tr=$('track'),cards=tr.children,vw=window.innerWidth,first=cards[0],last=cards[cards.length-1];
+  var left0=tr.parentElement.getBoundingClientRect().left+parseFloat(getComputedStyle(tr).paddingLeft);
+  var span=last.offsetLeft+last.offsetWidth-first.offsetLeft;
+  var xEnd=Math.min(0,vw-28-left0-span),xStart=Math.max(vw*.32,Math.min(vw*.5,-xEnd*.4));
+  var q=seg(p,.04,.94);q=q*q*(3-2*q);var x=xStart+(xEnd-xStart)*q;
+  tr.style.transform='translate3d('+x+'px,0,0)';
+  for(var i=0;i<cards.length;i++){var c=cards[i],cx=left0+(c.offsetLeft-first.offsetLeft)+c.offsetWidth/2+x,d=(cx-vw/2)/vw;
+    c.style.transform='rotateY('+(-d*16)+'deg) scale('+(1-Math.min(Math.abs(d),1)*.08)+')';
+    c.firstElementChild.style.transform='translateX('+(d*-90)+'px)'}
+});
+
+/* ---------- problem wipe ---------- */
+reg(document.querySelector('.problem'),function(p){
+  var w=seg(p,.12,.86);w=w*w*(3-2*w);$('wfront').style.clipPath='inset(0 '+(w*100)+'% 0 0)';
+  $('divider').style.left=((1-w)*100)+'%';$('divider').style.opacity=w>0&&w<1?'1':'0';
+  var steps=document.querySelectorAll('.task .wstep');
+  steps.forEach(function(s,i){s.classList.toggle('on',w>.25+i*.18)});
+});
+
+/* ---------- scene A: chat ---------- */
+var chat={mode:'loom'};
+var M={
+ loom:[
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'今天把退款这块过一下，PRD 发群里了',en:'Let’s go over refunds today, the PRD is in the chat',file:['PRD','订单退款 PRD v1.0','Refund PRD v1.0','退款流程 / 优惠券规则','Flow / coupon rules']},
+  {sys:1,zh:'产品、开发、测试三位助手已加入群聊',en:'The product, dev and QA assistants joined'},
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'补充一句：退款按实付金额，优惠券不退',en:'One more thing, refund the amount paid, coupons are not returned'},
+  {w:'许安',we:'Xu An',r:'测试',re:'QA',zh:'部分退款也不退券，对吧？',en:'Partial refunds keep the coupon too, right?'},
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'对，全额、部分退款都不退',en:'Right, full or partial, no coupon back'},
+  {bot:1,w:'许的测试助手',we:'Xu’s QA assistant',zh:'记下了，两种情况都会验证不退券',en:'Noted, both cases will be tested for no coupon refund'},
+  {w:'陈序',we:'Chen Xu',r:'开发',re:'Dev',zh:'支付平台可能重复回调，得做幂等',en:'The payment platform may call back twice, we need idempotency'},
+  {bot:1,w:'陈的开发助手',we:'Chen’s dev assistant',zh:'同一退款单的重复回调只处理一次，已加进方案',en:'Repeat callbacks for one refund run once, added to the plan'},
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'可以，别影响正常的退款重试',en:'Fine, just don’t break normal retries'},
+  {bot:1,w:'陈的开发助手',we:'Chen’s dev assistant',zh:'明白，失败重试和重复成功回调会分开处理',en:'Got it, failed retries and duplicate successes are handled separately'},
+  {bot:1,w:'林的产品助手',we:'Lin’s product assistant',zh:'PRD 已更新，退款规则和幂等验收都在',en:'PRD updated with the refund rules and idempotency checks',file:['PRD','订单退款 PRD v1.1','Refund PRD v1.1','已补充退款规则与幂等验收','Rules and checks added']},
+  {bot:1,w:'陈的开发助手',we:'Chen’s dev assistant',zh:'开发方案好了，按刚才讨论的规则整理',en:'Dev plan is ready, built on the rules we just agreed',file:['MD','退款开发方案.md','refund-dev-plan.md','实付退款 / 不退券 / 幂等 / 重试','Paid / no coupon / idempotent / retry']},
+  {bot:1,w:'许的测试助手',we:'Xu’s QA assistant',zh:'测试用例也好了，重试场景都在',en:'Test cases are ready, retry scenarios included',file:['XLSX','退款测试用例.xlsx','refund-test-cases.xlsx','规则 / 边界 / 并发回调 / 重试','Rules / edges / concurrency / retry']},
+  {w:'许安',we:'Xu An',r:'测试',re:'QA',zh:'这版对齐了，我按这份准备测试数据',en:'This version is aligned, I’ll prep test data from it'}
+ ],
+ solo:[
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'退款 PRD 发群里了，大家看一下',en:'Refund PRD is in the chat, take a look',file:['PRD','订单退款 PRD v1.0','Refund PRD v1.0','退款流程 / 优惠券规则','Flow / coupon rules']},
+  {w:'陈序',we:'Chen Xu',r:'开发',re:'Dev',zh:'我下载一下，让 AI 先出开发方案',en:'Downloading, I’ll have my AI draft the dev plan'},
+  {w:'许安',we:'Xu An',r:'测试',re:'QA',zh:'我也丢给我的 AI 整理用例',en:'Sending it to my AI for test cases too'},
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'补充一句：退款按实付金额，优惠券不退',en:'One more thing, refund the amount paid, coupons are not returned'},
+  {w:'陈序',we:'Chen Xu',r:'开发',re:'Dev',zh:'支付平台可能重复回调，还得做幂等',en:'The platform may call back twice, we still need idempotency'},
+  {w:'许安',we:'Xu An',r:'测试',re:'QA',zh:'等下，我的 AI 还在写「退回优惠券」的用例',en:'Wait, my AI is still writing a “refund the coupon” case'},
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'刚上面补充了，退款不退券',en:'I just said above, no coupon refunds'},
+  {w:'许安',we:'Xu An',r:'测试',re:'QA',zh:'我只给了它文档，没带上群里这几句，重发一下',en:'I only gave it the doc, not these messages, resending'},
+  {w:'陈序',we:'Chen Xu',r:'开发',re:'Dev',zh:'我这边也一样，重复回调还没带进上下文',en:'Same here, the callback rule never reached my context'},
+  {w:'林蔓',we:'Lin Man',r:'产品',re:'Product',zh:'我先把这几条更新进文档，更新完再发一遍',en:'Let me update the doc first and send it again'},
+  {w:'许安',we:'Xu An',r:'测试',re:'QA',zh:'好，我也得重新补一遍上下文',en:'OK, I have to rebuild my context too'}
+ ]};
+var chatShown=-1;
+function msgHTML(m){
+  if(m.sys)return '<div class="sys">'+bi(m.zh,m.en)+'</div>';
+  var f=m.file?'<div class="file"><span class="ext">'+m.file[0]+'</span><div><b>'+bi(m.file[1],m.file[2])+'</b><small>'+bi(m.file[3],m.file[4])+'</small></div></div>':'';
+  var av=m.bot?'L':m.w.charAt(0);
+  return '<div class="msg'+(m.bot?' bot':'')+'"><span class="av'+(m.bot?' bot':'')+'">'+esc(av)+'</span><div class="mb"><span class="who">'+bi(m.w+(m.r?' · '+m.r:' · 机器人'),m.we+(m.re?' · '+m.re:' · Bot'))+'</span><div class="bub">'+bi(m.zh,m.en)+'</div>'+f+'</div></div>';
+}
+function renderChat(force){
+  var list=M[chat.mode],feed=$('feed');
+  if(force||feed.dataset.mode!==chat.mode){feed.dataset.mode=chat.mode;feed.innerHTML=list.map(msgHTML).join('');chatShown=-1}
+  $('chatMembers').innerHTML=chat.mode==='loom'?bi('林蔓、陈序、许安 · 3 位助手','Lin, Chen, Xu · 3 assistants'):bi('林蔓、陈序、许安 · 3 人','Lin, Chen, Xu · 3 people');
+  document.querySelectorAll('#chatSteps .step').forEach(function(s){s.hidden=s.dataset.for!==chat.mode});
+  $('modeLoom').setAttribute('aria-pressed',String(chat.mode==='loom'));$('modeSolo').setAttribute('aria-pressed',String(chat.mode==='solo'));
+}
+function chatUpdate(p){
+  var list=M[chat.mode],n=list.length,items=$('feed').children;
+  var count=Math.max(1,Math.min(n,Math.floor(seg(p,.02,.86)*n)+1));
+  for(var i=0;i<items.length;i++){var vis=i<count;if(items[i].hidden===vis){items[i].hidden=!vis;if(vis&&i>=chatShown)items[i].classList.add('in')}}
+  chatShown=count;
+  var stepsEl=Array.prototype.filter.call(document.querySelectorAll('#chatSteps .step'),function(s){return s.dataset.for===chat.mode});
+  var k=chat.mode==='loom'?(count<6?0:count<11?1:2):(count<4?0:count<8?1:2);
+  stepsEl.forEach(function(s,i){s.classList.toggle('on',i===k)});
+  var done=count>=n;
+  $('typingText').innerHTML=done?bi('回放结束，可以往回滑','End of replay, scroll back to rewatch'):chat.mode==='loom'?(count>=10?bi('三位助手正在后台整理产物','Assistants are preparing deliverables'):bi('林蔓、陈序、许安正在讨论','Lin, Chen and Xu are talking')):bi('大家正在各自同步上下文','Everyone is re-syncing their own AI');
+  var arts=$('arts').children;
+  for(var j=0;j<arts.length;j++){var a=arts[j],pill=a.querySelector('[data-p]');
+    if(chat.mode==='loom'){var on=count>=11+j;a.classList.toggle('on',on);pill.className='pill'+(on?' ok':'');pill.innerHTML=on?bi('已交付 · 最新规则','Delivered · latest rules'):bi('跟随讨论中','Following along')}
+    else{a.classList.toggle('on',count>=6);pill.className='pill stale';pill.innerHTML=bi('待重新生成','Needs redoing')}}
+}
+reg(document.querySelector('.chat-scene'),chatUpdate);
+function setMode(m){chat.mode=m;renderChat(true);var s=scenes.filter(function(x){return x.el.classList.contains('chat-scene')})[0];chatUpdate(reduce.matches?1:prog(s))}
+$('modeLoom').addEventListener('click',function(){setMode('loom')});
+$('modeSolo').addEventListener('click',function(){setMode('solo')});
+
+/* ---------- scene B: resumes ---------- */
+var rest=[[-5,0],[3,0],[-2,0]];
+reg(document.querySelector('.resume-scene'),function(p){
+  var papers=document.querySelectorAll('#papers .paper');
+  papers.forEach(function(el,i){
+    var a=ease(seg(p,i*.06,.2+i*.06));
+    var ty=(1-a)*70,rot=rest[i][0]+(1-a)*(i===1?-28:24),sc=.85+.15*a;
+    el.style.transform='translateY('+ty+'vh) rotate('+rot+'deg) scale('+sc+')';
+    el.style.opacity=String(.15+.85*a);
+  });
+  var b=seg(p,.26,.5),beam=$('beam'),box=$('papers').getBoundingClientRect();
+  beam.style.opacity=b>0&&b<1?'1':'0';beam.style.transform='translateX('+(b*box.width)+'px)';
+  papers.forEach(function(el,i){var r=el.getBoundingClientRect();var passed=b>0&&(box.left+b*box.width)>r.left+r.width*.6;el.querySelector('.fields').classList.toggle('show',passed&&(i!==2||p>.48))});
+  var blur=p<.48?(p>.3?3:2.4):0;$('blurPaper').style.filter=blur?'blur('+blur+'px)':'none';
+  var st=$('stamp');
+  if(p>.36&&p<.48){st.className='stamp show';st.innerHTML=bi('待补拍','Retake')}
+  else if(p>=.48){st.className='stamp show';st.innerHTML=bi('已补拍','Retaken')}
+  else st.className='stamp';
+  $('agentRow').classList.toggle('on',p>.5&&p<.92);
+  var rows=document.querySelectorAll('#rows tr'),shown=0;
+  rows.forEach(function(tr,i){var on=p>.62+i*.09;tr.classList.toggle('off',!on);if(on)shown++});
+  var sync=$('sync');sync.className='sync'+(shown?' ok':'');
+  sync.innerHTML=shown?bi('已同步 '+shown+' 条','Synced '+shown):bi('等待同步','Waiting');
+  $('baseFoot').innerHTML=shown===3?bi('3 份已处理 · 补拍合并 1 次 · 0 条重复记录','3 processed · 1 retake merged · 0 duplicates'):shown?bi(shown+' 份已有初筛建议，等待招聘人员复核','Suggestions for '+shown+', waiting for review'):bi('还没有录入记录 · 人物与简历均为虚构','No rows yet · all people and resumes are fictional');
+  var k=p<.26?0:p<.5?1:p<.62?2:3;
+  document.querySelectorAll('#resSteps .step').forEach(function(s,i){s.classList.toggle('on',i===k)});
+});
+
+/* ---------- scene C: office doc ---------- */
+reg(document.querySelector('.office'),function(p){
+  var a=ease(seg(p,.05,.7));
+  $('doc').style.transform='translateY('+((1-a)*14)+'vh) rotateX('+((1-a)*28)+'deg) rotateZ('+((1-a)*-7)+'deg) scale('+(.55+.45*a)+')';
+  $('doc').style.opacity=String(.25+.75*a);
+  document.querySelectorAll('#doc .ln').forEach(function(l,i){l.style.transform='scaleX('+ease(seg(p,.3+i*.05,.55+i*.05))+')'});
+  document.querySelectorAll('#pipe b').forEach(function(b,i){b.classList.toggle('on',p>.12+i*.18)});
+  var ae=ease(seg(p,0,.15));$('ask').style.transform='translateY('+((1-ae)*10)+'px)';$('ask').style.opacity=String(.45+.55*ae);
+});
+reg(document.querySelector('.uses'),function(p){
+  var q=ease(seg(p,.05,1));var cards=document.querySelectorAll('.use');var dx=[1,0,-1];
+  cards.forEach(function(c,i){var spread=window.innerWidth>760?1:0;
+    c.style.transform='translate('+((1-q)*dx[i]*110*spread)+'%,'+((1-q)*(60+i*20))+'px) rotate('+((1-q)*(i-1)*-9*spread)+'deg)';
+    c.style.opacity=String(.2+.8*q)});
+},'pass');
+
+
+/* ---------- scene D: home ---------- */
+var hm={pts:[[0,500],[.12,520],[.2,540],[.5,610],[.66,1135],[.72,1140],[.8,1150],[.88,1260],[1,1270]]};
+function hmTime(p){var a=hm.pts;for(var i=1;i<a.length;i++){if(p<=a[i][0]){var t=(p-a[i-1][0])/(a[i][0]-a[i-1][0]);return a[i-1][1]+(a[i][1]-a[i-1][1])*t}}return a[a.length-1][1]}
+function hhmm(m){m=Math.round(m);return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
+var rp=$('robotPath'),RL=rp.getTotalLength();rp.style.strokeDasharray=RL;
+function pill(el,cls,zh,en){el.className='pill'+(cls?' '+cls:'');el.innerHTML=bi(zh,en)}
+reg(document.querySelector('.home-scene'),function(p){
+  var m=hmTime(p);$('homeClock').textContent=hhmm(m);
+  var k=p<.15?0:p<.6?1:p<.84?2:3;
+  document.querySelectorAll('#homeSteps .step').forEach(function(s,i){s.classList.toggle('on',i===k)});
+  $('homePhase').innerHTML=[bi('出门前 · 在家','Before leaving'),bi('离家后','Out'),bi('回家前','Before home'),bi('回家后','Home')][k];
+  // sun from 06:00 to 20:30
+  var f=clamp((m-360)/(1230-360)),x=20+560*f,y=88-128*f*(1-f)*2;var sun=$('sun');sun.style.left=(x/6)+'%';sun.style.top=(Math.min(88,y)/.92)+'%';
+  $('homeWho').innerHTML=p<.15?bi('· 主人在家','· You’re home'):p<.84?bi('· 主人已离家','· You’re out'):bi('· 主人已回家','· You’re back');
+  var pub=p>.08;$('deleCount').innerHTML=pub?bi('2 条已发布','2 live'):bi('2 条待发布','2 drafts');
+  $('dAc').classList.toggle('live',pub);$('dClean').classList.toggle('live',pub);
+  // cleaning lane
+  var c=seg(p,.2,.5),ld=$('ldClean').children;
+  var cs=p<.12?0:p<.16?1:p<.2?2:c<1?3:4;
+  for(var i=0;i<ld.length;i++)ld[i].classList.toggle('on',i<cs);
+  if(!pub){pill($('pClean'),'','待发布','Draft');$('sClean').innerHTML=bi('等待主人发布委托','Waiting for you to publish')}
+  else if(p<.15){pill($('pClean'),'','等待离家','Waiting');$('sClean').innerHTML=bi('等待已授权的离家事件','Waiting for an authorized leave event')}
+  else if(c<1){pill($('pClean'),'ok','清洁中 '+Math.round(c*100)+'%','Cleaning '+Math.round(c*100)+'%');$('sClean').innerHTML=bi('离家事件到达，创建独立 Session，只管扫地机器人','Leave event received, own session, vacuum only')}
+  else{pill($('pClean'),'ok','已完成','Done');$('sClean').innerHTML=bi('清洁完成，已读回回充状态','Finished and verified back on the dock')}
+  rp.style.strokeDashoffset=String(RL*(1-c));
+  var pt=rp.getPointAtLength(RL*c);$('robot').setAttribute('cx',pt.x);$('robot').setAttribute('cy',pt.y);
+  // AC lane
+  var la=$('ldAc').children,as=p<.66?0:p<.7?1:p<.76?2:3;
+  for(var j=0;j<la.length;j++)la[j].classList.toggle('on',j<as);
+  if(!pub){pill($('pAc'),'','待发布','Draft');$('sAc').innerHTML=bi('等待主人发布委托','Waiting for you to publish')}
+  else if(p<.66){pill($('pAc'),'','等待 19:00','Until 19:00');$('sAc').innerHTML=bi('时钟未到，不占用执行 Session','Not yet time, no session in use')}
+  else if(p<.76){pill($('pAc'),'ok','设置中','Setting');$('sAc').innerHTML=bi('时钟触发，创建独立 Session，设置制冷 26°C','Clock fired, own session, cooling to 26°C')}
+  else{pill($('pAc'),'ok','制冷中','Cooling');$('sAc').innerHTML=bi('已读回开机、制冷模式与 26°C 设置','Verified on, cooling, set to 26°C')}
+  var cool=p>=.7;$('acUnit').classList.toggle('on',cool);
+  var ph=(p*40)%1;['cool1','cool2'].forEach(function(id,i){$(id).style.opacity=cool?String(.3+.6*Math.abs(Math.sin((ph+i*.5)*Math.PI))):'0'});
+  $('habit').classList.toggle('on',p>.86);
+});
+
+/* ---------- scene tabs ---------- */
+var tabBtns=[].slice.call(document.querySelectorAll('.scene-tabs [role="tab"]'));
+var curTab='1';
+function showTab(n,scroll){
+  if(n===curTab)return;curTab=n;
+  tabBtns.forEach(function(b){var on=b.dataset.tab===n;b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1});
+  var secs=[].slice.call(document.querySelectorAll('#scenesWrap [data-tab]:not([role])'));
+  var cur=secs.filter(function(s){return !s.hidden})[0];
+  var target=cur?window.scrollY+cur.getBoundingClientRect().top:0;
+  secs.forEach(function(sec){sec.hidden=sec.dataset.tab!==n});
+  if(scroll&&window.scrollY>target)window.scrollTo({top:target,behavior:'instant'});
+  frame(true);
+  if(!reduce.matches&&Element.prototype.animate){
+    secs.forEach(function(sec){if(sec.hidden)return;var st=sec.querySelector('.stage-in')||sec;
+      st.animate([{opacity:.35,transform:'translateY(18px)'},{opacity:1,transform:'none'}],{duration:420,easing:'cubic-bezier(.2,.8,.2,1)'})});
+  }
+}
+tabBtns.forEach(function(b,i){
+  b.addEventListener('click',function(){showTab(b.dataset.tab,true)});
+  b.addEventListener('keydown',function(e){var d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(!d)return;e.preventDefault();var nb=tabBtns[(i+d+tabBtns.length)%tabBtns.length];nb.focus();showTab(nb.dataset.tab,true)});
+});
+
+/* ---------- product ---------- */
+var capIdx=-1;
+var ctl={taken:false};
+function paintCtl(){
+  $('ctlState').innerHTML=ctl.taken?bi('你已接管 · 示意','You’re in control · demo'):bi('助手执行中','Assistant is working');
+  $('ctlHint').innerHTML=ctl.taken?bi('可以修改已有报告，保留版本','Edit the report, versions are kept'):bi('试试右侧的接管按钮','Try taking over');
+  $('ctlBtn').innerHTML=ctl.taken?bi('交还助手','Hand back'):bi('接管这个任务','Take over');
+  $('ctlBtn').className='btn'+(ctl.taken?' ghost':'');
+}
+$('ctlBtn').addEventListener('click',function(){ctl.taken=!ctl.taken;paintCtl()});
+var dlText={feishu:['报告文件回到任务原线程，涉及私聊补充时按权限转给本人私聊','The report returns to the original thread, or to your DMs when private context was involved'],
+ loom:['报告保存在 Loom，按需查看、改稿或导出，飞书里只收到文字摘要','Kept in Loom to read, edit or export, Feishu gets a short text summary'],
+ mail:['先核对本人绑定邮箱并明确授权，邮件使用固定的报告版本','Verify your own address and approve first, emails always carry a fixed version']};
+function paintDl(){var v=(document.querySelector('#radios input:checked')||{}).value||'feishu';$('dlDesc').innerHTML=bi(dlText[v][0],dlText[v][1])}
+document.querySelectorAll('#radios input').forEach(function(r){r.addEventListener('change',paintDl)});
+var capsSec=document.querySelector('.product');
+document.querySelectorAll('#caps .cap').forEach(function(b,i){b.addEventListener('click',function(){
+  var r=capsSec.getBoundingClientRect(),top=window.scrollY+r.top,len=r.height-window.innerHeight;
+  window.scrollTo({top:top+len*((i+.5)/5),behavior:reduce.matches?'auto':'smooth'})})});
+reg(capsSec,function(p){
+  var f=p*5,idx=Math.min(4,Math.floor(f)),local=clamp(f-idx);
+  var caps=document.querySelectorAll('#caps .cap'),panels=document.querySelectorAll('#device .panel');
+  if(idx!==capIdx){capIdx=idx;
+    caps.forEach(function(c,i){c.classList.toggle('on',i===idx);c.setAttribute('aria-current',i===idx?'step':'false')});
+    panels.forEach(function(pn,i){pn.classList.toggle('on',i===idx);pn.classList.toggle('before',i<idx)});
+    var rail=$('rail');
+    if(window.innerWidth>980){rail.style.transform='translateY('+(caps[idx].offsetTop)+'px)';rail.style.height=caps[idx].offsetHeight+'px'}
+    else{rail.style.transform='translateX('+(idx*100)+'%)';rail.style.height=''}
+    $('capDesc').innerHTML=caps[idx].querySelector(':scope > span').innerHTML;
+  }
+  var tl=document.querySelectorAll('#tl div'),fill=document.querySelector('#tl .fill');
+  var tp=idx>1?1:idx<1?0:seg(local,.05,.8);tl.forEach(function(d,i){d.classList.toggle('on',tp>=i/(tl.length-1)-.01)});
+  if(fill)fill.style.height=(tp*100)+'%';
+  var lp=idx>2?1:idx<2?0:seg(local,.05,.85);document.querySelectorAll('#log > div').forEach(function(d,i){d.classList.toggle('on',lp>=(i+1)/4-.05)});
+});
+
+/* ---------- ring ---------- */
+var nodes=[['工作环境','Environment'],['任务执行','Execution'],['成果与反馈','Results & feedback'],['校验与维护','Review & upkeep'],['再次复用','Reuse']];
+var rot=$('ringRot');
+nodes.forEach(function(n,i){var a=(i/nodes.length)*Math.PI*2-Math.PI/2;var d=document.createElement('div');d.className='node';d.style.left=(50+40*Math.cos(a))+'%';d.style.top=(50+40*Math.sin(a))+'%';d.innerHTML='<b>'+bi(n[0],n[1])+'</b>';rot.appendChild(d)});
+var C=2*Math.PI*160;$('ringProg').style.strokeDasharray=C;
+reg(document.querySelector('.ring-sec'),function(p){
+  var q=seg(p,.05,.95),deg=-q*288;
+  rot.style.transform='rotate('+deg+'deg)';
+  rot.querySelectorAll('.node').forEach(function(n,i){n.firstElementChild.style.transform='translate(-50%,-50%) rotate('+(-deg)+'deg)';n.classList.toggle('on',i===Math.min(4,Math.floor(q*5)))});
+  $('ringProg').style.strokeDashoffset=String(C*(1-q));
+});
+
+/* ---------- roadmap + closing ---------- */
+reg(document.querySelector('.roadmap'),function(p){
+  var q=seg(p,.25,1);$('rmLine').style.transform='scaleX('+ease(q)+')';
+  document.querySelectorAll('.rm-col').forEach(function(c,i){c.classList.toggle('on',q>=i*.4)});
+},'pass');
+var tp=$('threadPath'),TL=tp.getTotalLength();tp.style.strokeDasharray=TL;
+reg(document.querySelector('.closing'),function(p){tp.style.strokeDashoffset=String(TL*(1-ease(seg(p,.1,1))))},'pass');
+
+/* ---------- generic reveals ---------- */
+document.querySelectorAll('[data-reveal]').forEach(function(el){
+  var kind=el.dataset.reveal,delay=+(el.dataset.delay||0);
+  reg(el,function(p){
+    var q=ease(clamp(p*1.25-delay*.1)),t='';
+    if(kind==='up')t='translateY('+((1-q)*48)+'px)';
+    else if(kind==='left')t='translateX('+((1-q)*-80)+'px)';
+    else if(kind==='right')t='translateX('+((1-q)*80)+'px) rotate('+((1-q)*3)+'deg)';
+    else if(kind==='scale')t='scale('+(.86+.14*q)+')';
+    else if(kind==='flip')t='perspective(900px) rotateX('+((1-q)*-55)+'deg) translateY('+((1-q)*30)+'px)';
+    el.style.transform=t;el.style.opacity=String(.18+.82*q);
+  },'pass');
+});
+
+/* ---------- nav spy ---------- */
+var links=[].slice.call(document.querySelectorAll('.nav-links a'));
+function navSpy(){var y=window.innerHeight*.35,cur=null;links.forEach(function(a){var s=document.querySelector(a.getAttribute('href'));if(s&&s.getBoundingClientRect().top<y)cur=a});links.forEach(function(a){a.classList.toggle('on',a===cur)})}
+
+function fillStatic(){paintCtl();paintDl()}
+paintThemeBtn();renderChat(true);fillStatic();weave.resize();frame(true);
+reduce.addEventListener('change',function(){frame(true)});
+})();
+</script>
+
+</body>
+</html>

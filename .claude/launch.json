@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "loom-demo",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "loom", "dev"],
+      "env": { "LOOM_PORT": "4579" },
+      "port": 4579
+    }
+  ]
+}
