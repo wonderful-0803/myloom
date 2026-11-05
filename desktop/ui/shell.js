@@ -12,6 +12,8 @@ function fact(label, value) {
 }
 function render(state) {
   current = state
+  $('platform-label').textContent = state.platformLabel || '本机'
+  if (state.platformLabel === 'Windows') $('setup-environment-help').textContent = 'Windows 原生版使用本机 Node.js、DeepSeek Harness、Git 和飞书 CLI。请先准备列表中缺少的依赖，并选择已构建的 Loom 办公引擎。助手使用 Windows 自己的数据目录与后台进程；安装包不包含账号或密钥。'
   window.loomOnboarding.render(state.onboarding)
   if (state.onboarding?.active) {
     document.title = 'Loom · 首次配置'

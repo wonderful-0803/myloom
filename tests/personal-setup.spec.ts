@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initializePersonalSettings, type PersonalSetupInput } from '../src/personal-setup.ts'
+import { initializePersonalSettings, reconfigurePersonalSettings, type PersonalSetupInput } from '../src/personal-setup.ts'
 import { Store } from '../src/app/store.ts'
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -13,6 +13,39 @@ function fixture(): PersonalSetupInput {
     chats: [{ chatId: 'oc_test', name: '测试群', listen: 'all' }], directMessages: true, mode: 'observe', model: 'test-model' }
 }
 describe('desktop first-run state', () => {
+  it('refuses first-run reconfiguration once a task exists and preserves the task and settings history', () => {
+    const input = fixture(); initializePersonalSettings(input)
+    const first = new Store(join(input.stateDir, 'orchestrator.sqlite'))
+    first.db.prepare('INSERT INTO ticket (id, value) VALUES (?, ?)').run('existing', JSON.stringify({ id: 'existing' }))
+    first.db.close()
+    expect(() => reconfigurePersonalSettings({ ...input, owner: 'ou_changed' })).toThrow('already has tasks')
+    const current = new Store(join(input.stateDir, 'orchestrator.sqlite'))
+    try {
+      expect(current.settingsHistory()).toHaveLength(1)
+      expect(current.db.prepare('SELECT count(*) AS n FROM ticket').get()?.n).toBe(1)
+      expect(current.settings().policy.sources.feishu?.allowed[0]?.id).toBe('ou_owner')
+    } finally { current.db.close() }
+  })
+  it('reconfigures a known unused first-run database with a new settings revision and preserves existing history', () => {
+    const input = fixture(); initializePersonalSettings(input)
+    const first = new Store(join(input.stateDir, 'orchestrator.sqlite'))
+    const before = first.settingsHistory(); first.db.close()
+    const changed = { ...input, owner: 'ou_changed', mode: 'auto' as const, model: 'changed-model' }
+    reconfigurePersonalSettings(changed)
+    const store = new Store(join(input.stateDir, 'orchestrator.sqlite'))
+    try {
+      expect(store.settingsHistory()).toHaveLength(2)
+      expect(store.settingsHistory().find(row => row.revision === before[0]!.revision)).toEqual(before[0])
+      expect(store.settings().policy.sources.feishu?.allowed[0]?.id).toBe('ou_changed')
+      expect(store.settings().eval).toMatchObject({ mode: 'auto', model: { provider: 'loom', model: 'changed-model' } })
+    } finally { store.db.close() }
+    reconfigurePersonalSettings(changed)
+    const repeated = new Store(join(input.stateDir, 'orchestrator.sqlite'))
+    try { expect(repeated.settingsHistory()).toHaveLength(2) } finally { repeated.db.close() }
+    const foreign = fixture(); mkdirSync(foreign.stateDir); writeFileSync(join(foreign.stateDir, 'orchestrator.sqlite'), 'keep-existing')
+    expect(() => reconfigurePersonalSettings(foreign)).toThrow('never replaced')
+    expect(readFileSync(join(foreign.stateDir, 'orchestrator.sqlite'), 'utf8')).toBe('keep-existing')
+  })
   it('creates real versioned office settings with one owner and exact scope, without importing any previous data', () => {
     const input = fixture(); initializePersonalSettings(input)
     const store = new Store(join(input.stateDir, 'orchestrator.sqlite'))

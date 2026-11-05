@@ -8,3 +8,4 @@ loom/loom.db*
 desktop/dist/
 desktop/assets/*.png
 desktop/assets/*.icns
+desktop/assets/*.ico

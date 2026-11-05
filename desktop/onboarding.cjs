@@ -10,9 +10,12 @@ const { execFile } = require('node:child_process')
 const { RuntimeLink, executable, installation } = require('./runtime.cjs')
 const policy = require('./policy.cjs')
 const { dataHome } = require('./platform.cjs')
+const nativeCommands = require('./commands.cjs')
+const { privateDirectory } = require('./private-files.cjs')
+const { readModelKey, modelKeyDocument } = require('./credentials.cjs')
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
 function write(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  privateDirectory(path.dirname(file))
   if (fs.existsSync(file) && !fs.lstatSync(file).isFile()) throw new Error('配置路径不是普通文件。')
   const temporary = file + '.' + randomUUID() + '.tmp'
   fs.writeFileSync(temporary, value, { mode: 0o600, flag: 'wx' }); fs.renameSync(temporary, file)
@@ -56,15 +59,15 @@ class Onboarding {
   constructor({ directory, projectRoot, legacy, dataRoot }, dependencies = {}) {
     this.directory = directory; this.projectRoot = projectRoot; this.legacy = legacy
     this.dataRoot = dataRoot || path.join(dataHome(), 'luxi-loom')
-    this.run = dependencies.run || run; this.request = dependencies.request || responseJSON
-    this.find = dependencies.executable || executable; this.port = dependencies.port || availablePort
+    this.run = dependencies.run || (process.platform === 'win32' ? nativeCommands.run : run); this.request = dependencies.request || responseJSON
+    this.find = dependencies.executable || (process.platform === 'win32' ? name => nativeCommands.executable(name, process.env, this.projectRoot) : executable); this.port = dependencies.port || availablePort
     this.runtimeFactory = dependencies.runtime || (config => new RuntimeLink(config))
     this.config = read(path.join(directory, 'onboarding.json')) || { version: 1, id: randomUUID(), prepared: false }
     if (typeof this.config.projectRoot === 'string') this.projectRoot = this.config.projectRoot
     if (!/^[a-f0-9-]{36}$/.test(this.config.id) || this.config.version !== 1) throw new Error('首次配置记录无效，请保留现场检查。')
     this.root = path.join(this.dataRoot, 'instances', this.config.id)
     this.profile = 'loom-' + this.config.id.replaceAll('-', '').slice(0, 12)
-    this.active = !this.config.completed; this.busy = false; this.message = '从这里，连接你的个人助手。'; this.error = ''; this.groups = []; this.members = []; this.conflicts = []
+    this.active = !this.config.completed; this.busy = false; this.message = '从这里，连接你的个人助手。'; this.error = ''; this.groups = (this.config.scope?.chats || []).map(({ chatId, name }) => ({ chatId, name })); this.members = []; this.conflicts = []
   }
   persist() { write(path.join(this.directory, 'onboarding.json'), JSON.stringify(this.config, null, 2)) }
   /** Called only with a directory returned by the trusted native picker; changing an initialized engine is refused. */
@@ -77,13 +80,13 @@ class Onboarding {
   connection() { return { backendRoot: this.projectRoot, serviceURL: this.config.serviceURL, runtimeHome: path.join(this.root, 'dsh'), profile: this.profile } }
   environment() {
     const found = installation(this.projectRoot)
-    const checks = ['node', 'dsh', 'python3', 'tmux', 'lark-cli'].map(name => ({ name, available: !!this.find(name) }))
+    const checks = (process.platform === 'win32' ? ['node', 'dsh', 'git', 'lark-cli'] : ['node', 'dsh', 'python3', 'tmux', 'lark-cli']).map(name => ({ name, available: !!this.find(name) }))
     checks.unshift({ name: 'Loom 办公引擎', available: found.valid && fs.existsSync(path.join(this.projectRoot, 'lib/personal-setup.js')) })
     return checks
   }
   view() {
     return { active: this.active, busy: this.busy, message: this.message, error: this.error, prepared: this.config.prepared,
-      model: this.config.model || null, bot: this.config.bot || null, scope: this.config.scope || null, frozen: !!this.config.frozen,
+      model: this.config.model || null, bot: this.config.bot || null, scope: this.config.scope || null, frozen: !!this.config.frozen && !this.config.editing,
       completed: !!this.config.completed, serviceURL: this.config.serviceURL || '', environment: this.environment(),
       groups: this.groups, members: this.members, conflicts: this.conflicts,
       step: !this.config.prepared ? 0 : !this.config.model ? 1 : !this.config.bot ? 2 : !this.config.scope ? 3 : 4 }
@@ -93,7 +96,7 @@ class Onboarding {
     if (fs.existsSync(this.root) && fs.lstatSync(this.root).isSymbolicLink()) throw new Error('配置目录不能是符号链接。')
     const marker = path.join(this.root, '.loom-instance')
     if (fs.existsSync(this.root) && !fs.existsSync(marker)) throw new Error('已有目录不属于本向导，未覆盖。')
-    fs.mkdirSync(this.root, { recursive: true, mode: 0o700 })
+    privateDirectory(this.root)
     if (!fs.existsSync(marker)) fs.writeFileSync(marker, this.config.id, { mode: 0o600, flag: 'wx' })
   }
   env() {
@@ -108,7 +111,8 @@ class Onboarding {
     try {
       if (action === 'environment') this.notify('环境检查已更新。')
       else if (action === 'prepare') await this.prepare()
-      else if (['model', 'bot', 'scope'].includes(action) && this.config.frozen) throw new Error('运行配置已初始化；请先完成启动，再从设置中调整。')
+      else if (action === 'edit') await this.edit()
+      else if (['bot', 'scope'].includes(action) && this.config.frozen && !this.config.editing) throw new Error('请先点击返回修改，安全停止当前助手后再编辑。')
       else if (action === 'model') await this.saveModel(input)
       else if (action === 'bot') await this.saveBot(input)
       else if (action === 'groups') { await this.listGroups(); this.notify('机器人已加入的群列表已更新。') }
@@ -120,9 +124,21 @@ class Onboarding {
     } catch (error) { this.error = error.message; throw error }
     finally { this.busy = false; this.notify() }
   }
+  async edit() {
+    if (this.config.frozen && !this.config.editing) {
+      this.notify('正在确认当前本机助手已安全停止，随后返回修改…')
+      const runtime = this.runtimeFactory(this.connection())
+      let state = await runtime.probe()
+      if (state.phase !== 'stopped') state = await runtime.action('stop', true)
+      if (state.phase !== 'stopped') throw new Error('当前助手尚未确认停止，暂未解锁修改；请检查本机运行状态后重试。')
+      this.config.editing = true; this.persist()
+    }
+    this.notify('可以返回修改配置。已有数据保留，重新确认启动后才会应用。')
+  }
   async prepare() {
     if (this.config.prepared) return
-    if (this.environment().some(check => !check.available)) throw new Error('运行环境尚未齐备，请先安装列表中缺少的依赖。向导不会使用 sudo 或覆盖现有助手。')
+    if (this.environment().some(check => !check.available)) throw new Error('运行环境尚未齐备，请先安装列表中缺少的依赖。向导不会提升系统权限或覆盖现有助手。')
+    this.config.projectRoot = this.projectRoot
     this.ensureRoot(); this.config.serviceURL ||= 'http://127.0.0.1:' + await this.port(); this.persist()
     const env = this.env(), profileDir = path.join(env.DSH_HOME, 'profiles', this.profile)
     this.notify('正在创建独立的本机执行环境…')
@@ -132,6 +148,7 @@ class Onboarding {
     this.config.prepared = true; this.persist(); this.notify('环境已准备好。接下来连接模型。')
   }
   async testModel(model, key) {
+    if (!secret(key)) throw new Error('未读取到有效的模型 API Key，请重新连接模型。')
     this.notify('正在验证模型连接（仅发送一条固定的短测试，不含个人资料）…')
     const response = await this.request(model.baseURL + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
       body: JSON.stringify({ model: model.model, messages: [{ role: 'user', content: 'Reply with LOOM_OK.' }], max_tokens: 32, stream: false }) })
@@ -141,11 +158,12 @@ class Onboarding {
     if (!this.config.prepared) throw new Error('请先准备运行环境。')
     const model = modelInput(input), file = path.join(this.root, 'dsh/.credentials.yaml')
     const previous = this.config.model
+    if (this.config.frozen && !this.config.editing && (!previous || previous.baseURL !== model.baseURL || previous.model !== model.model)) throw new Error('请先点击返回修改，再调整模型或 API 地址。')
     let key = input.apiKey
-    if (!key && previous?.baseURL === model.baseURL && previous.model === model.model) key = read(file)?.refs?.LOOM_MODEL_API_KEY
+    if (!key && previous?.baseURL === model.baseURL && previous.model === model.model) key = readModelKey(file)
     if (!secret(key)) throw new Error('请在本机输入有效的 API Key。')
     await this.testModel(model, key)
-    write(file, JSON.stringify({ version: 1, refs: { LOOM_MODEL_API_KEY: key } }))
+    write(file, modelKeyDocument(file, key))
     this.config.model = { ...model, verifiedAt: new Date().toISOString() }; this.persist()
     this.notify('模型连接已通过，凭据只保存在本机。')
   }
@@ -255,7 +273,7 @@ class Onboarding {
   async start(input) {
     if (input.consent !== true || !this.config.prepared || !this.config.model || !this.config.bot || !this.config.scope) throw new Error('请完成并确认全部配置。')
     this.notify('正在重新核验凭证、群范围和已有机器人连接…')
-    await this.testModel(this.config.model, read(path.join(this.root, 'dsh/.credentials.yaml'))?.refs?.LOOM_MODEL_API_KEY)
+    await this.testModel(this.config.model, readModelKey(path.join(this.root, 'dsh/.credentials.yaml')))
     await this.token()
     if (this.config.scope.chats.length) {
       await this.listGroups()
@@ -287,12 +305,17 @@ class Onboarding {
       { id: 'llm-pi-ai', config: { providers: { loom: { displayName: '我的模型', api: 'openai-completions', baseURL: model.baseURL, apiKeyEnv: 'LOOM_MODEL_API_KEY', models: [{ id: model.model, name: model.model }] } } } },
       { id: 'agent-default-model', config: { provider: 'loom', model: model.model } }]
     write(path.join(profileDir, 'cordis.patch.yml'), JSON.stringify(patch, null, 2))
-    const botCli = path.join(this.root, 'lark-bot')
-    write(botCli, '#!/bin/sh\nexport LARKSUITE_CLI_CONFIG_DIR=' + quote(path.join(this.root, 'lark')) + '\nexec ' + quote(this.find('lark-cli')) + ' "$@"\n')
-    fs.chmodSync(botCli, 0o700)
-    const settings = { stateDir: path.join(this.root, 'state'), botCli, ...this.config.scope, model: model.model }
+    const botCli = path.join(this.root, process.platform === 'win32' ? 'lark-bot.cjs' : 'lark-bot')
+    if (process.platform === 'win32') {
+      const target = this.find('lark-cli')
+      write(botCli, `'use strict'\nconst {spawnSync}=require('node:child_process');\nprocess.env.LARKSUITE_CLI_CONFIG_DIR=${JSON.stringify(path.join(this.root, 'lark'))};\nconst file=${JSON.stringify(target)};\nconst script=/\\.[cm]?js$/i.test(file);\nconst result=spawnSync(script?process.execPath:file,[...script?[file]:[],...process.argv.slice(2)],{env:process.env,stdio:'inherit',windowsHide:true});\nprocess.exit(result.status??1);\n`)
+    } else {
+      write(botCli, '#!/bin/sh\nexport LARKSUITE_CLI_CONFIG_DIR=' + quote(path.join(this.root, 'lark')) + '\nexec ' + quote(this.find('lark-cli')) + ' "$@"\n')
+      fs.chmodSync(botCli, 0o700)
+    }
+    const settings = { stateDir: path.join(this.root, 'state'), botCli, ...this.config.scope, model: model.model, reconfigure: !!this.config.frozen }
     await this.run(this.find('node'), [path.join(this.projectRoot, 'scripts/initialize-desktop-assistant.cjs')], { cwd: this.root, env: this.env(), timeout: 15000 }, JSON.stringify(settings))
-    this.config.frozen = true; this.persist()
+    this.config.frozen = true; delete this.config.editing; this.persist()
     write(path.join(this.root, 'connection.json'), JSON.stringify(this.connection()))
     this.notify('正在启动本机助手并连接飞书…')
     if (read(lease)?.id !== this.config.id) throw new Error('机器人连接归属已变化，未启动监听。')

@@ -49,6 +49,7 @@
     "desktop:start": "pnpm --dir desktop start",
     "desktop:test": "pnpm --dir desktop test",
     "desktop:build": "pnpm --dir desktop build",
+    "desktop:build:windows": "pnpm --dir desktop build:windows",
     "desktop:install": "pnpm --dir desktop install:local",
     "build:loom": "pnpm --dir loom build",
     "check:loom": "pnpm --dir loom exec tsc --noEmit && pnpm --dir loom test && pnpm --dir loom build",

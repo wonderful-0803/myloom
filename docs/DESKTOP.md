@@ -1,6 +1,41 @@
 # Loom 桌面端
 
-提供 **Linux x64 本机版**和 **macOS arm64／x64 内测版**：独立 Electron 应用、托盘、连接状态及首次配置向导。可接入已有 Superagent / DeepSeek Harness，也可在已有本机引擎和依赖上从零配置独立的助手，不启动演示执行器。已有助手的任务库和账户凭据不自动复制。macOS 原生构建、签名和空白首次启动检查的实际结果另记联调记录，不将打包完成等同于完整飞书与模型联调。
+提供 **Linux x64 本机版**、**macOS arm64／x64 内测版**和 **Windows x64 原生版**：独立 Electron 应用、托盘、连接状态及首次配置向导。可接入已有 Superagent / DeepSeek Harness，也可在已有本机引擎和依赖上从零配置独立的助手，不启动演示执行器。已有助手的任务库和账户凭据不自动复制。各系统的原生构建、启动与业务联调证据分别记录，不将打包完成等同于完整飞书与模型联调。
+
+## Windows 原生版（0.4.1）
+
+产物为 `desktop/dist/Loom-0.4.1-windows-x64.zip`，附 SHA-256 和 JSON 构建记录；构建目录为 `desktop/dist/windows-0.4.1/Loom-win32-x64/`。完整解压后双击 `Loom.exe`；不要单独移动 exe，Electron 的 DLL、resources 和 locales 必须保持在同一目录。客户端和助手均运行在 Windows 本机，不使用 WSL，也不需要 tmux 或 Python 启停脚本。当前只验证 Windows x64，未提供 ARM64 包或发布者代码签名。
+
+0.4.1 修复首次启动失败后“返回修改”被永久禁用的问题。返回时先确认停止当前本机实例，再允许逐页修改模型、飞书和消息范围；保存已有配置，重新确认启动后才应用到同一数据库并追加设置版本。此入口只重配尚无任务的首次配置实例，已有任务和外来数据库不会被覆盖。凭据读取兼容 Harness 管理的 YAML／JSON，并在更新模型 Key 时保留其他引用和记录；缺失凭据在本地报错，不发送 `Bearer undefined`。
+
+环境需要 Windows 原生 Node.js 22.19+（22 LTS）或 24+、Git、DeepSeek Harness、飞书 CLI，以及完成构建的本仓库。以下命令在仓库根目录执行；已安装的依赖可直接复用：
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm --dir loom install --frozen-lockfile
+pnpm build:loom
+pnpm build
+npm install --prefix .artifacts/windows-tools @deepseek-ai/dsh@0.2.1-rc.3 @larksuite/cli@1.0.90
+pnpm --dir desktop install --frozen-lockfile
+pnpm desktop:build:windows
+```
+
+项目内的 CLI 安装位于被 Git 忽略的 `.artifacts/windows-tools/`，向导选择该项目后可直接识别；也支持 PATH 中已安装的 CLI。使用 Node 包的实际 JS 入口或原生 exe，不将聊天内容拼入 cmd.exe。首次准备可能下载 Harness profile 依赖，需要可用的 pnpm 和网络。
+
+在向导中选择本仓库目录，再依次准备环境、配置自己的模型、机器人和本人消息范围。开发时也可用 `Loom.exe --engine-root "D:\path\to\myloom"` 指定已构建的引擎；ZIP 不保存开发机的绝对路径。普通入口的偏好在 `%APPDATA%/luxi-loom/`；独立 `--setup-experience` 入口在 `%APPDATA%/luxi-loom-first-run/`。新助手的 profile、凭据和任务库在 `%LOCALAPPDATA%/luxi-loom/instances/<id>/`。凭据目录关闭继承并授予当前用户访问权限；这是 Windows 文件 ACL，不宣称钥匙串加密或独立 OS 沙箱。
+
+`desktop/native-windows.cjs` 和 `windows-service.cjs` 以随机命名管道及本机私有归属记录管理独立 Node 进程；核对项目、profile、回环地址和存活 PID，未知占用端口或不能核实的进程会阻止启停。关闭窗口可从托盘恢复；退出客户端让助手继续运行，明确停止才向真实 Harness 的 SIGINT 清理处理器发出停止请求，并等待 PID 退出，不强杀。手动停止标记阻止自动恢复。`src/infra/` 使用原生 CLI 参数与 Windows 账户命令文件，任务准备命令使用 PowerShell；路由器继承实际可用的 Bash／pwsh 工具，并保留办公模式禁用 shell 和等待限制。
+
+原生验收命令：
+
+```powershell
+pnpm desktop:test
+node desktop/scripts/smoke-windows.cjs desktop/dist/windows-0.4.1/Loom-win32-x64/Loom.exe .artifacts/windows-native-packaged-engine .
+node desktop/scripts/smoke-edit-windows.cjs desktop/dist/windows-0.4.1/Loom-win32-x64/Loom.exe
+node desktop/test/integration-runtime.cjs
+```
+
+已在当前 Windows 机器验证打包后的真实系统窗口句柄、首次配置、空白密钥、隐藏恢复和工作空间隔离；真实 Harness 完成独立配置、Loom API 连接、模拟消费者就绪及安全停止。外部飞书和模型接口在集成验收中使用明确替身，未配置真实账户、发消息或调用付费模型。ZIP 仍需外置引擎和依赖，尚非全新电脑的一键完整安装器。具体记录见 [Windows 联调证据](PERSONAL_ACCEPTANCE.md#windows-原生客户端-0402026-11-05)。
 
 ## macOS 压缩包（0.3.0）
 
@@ -11,7 +46,7 @@
 
 Mac 首次使用仍须先准备 Node、DeepSeek Harness、Python 3、tmux、飞书 CLI 及已构建的本仓库办公引擎，依赖安装见 [个人部署](PERSONAL_SETUP.md)。在向导第一步点击“选择办公引擎目录”，选择完成 `pnpm build:loom` 和 `pnpm build` 的源码目录，再检查环境并配置自己的模型及机器人。引擎目录选择经原生窗口和后端验证，保存后可恢复；环境准备后禁止换引擎，避免中途改用其他程序。Mac 助手记录存于 `~/Library/Application Support/luxi-loom/`，向导偏好在 `~/Library/Application Support/luxi-loom-first-run/`；已保存的路径及 XDG 覆盖继续生效。
 
-Mac 入口补齐 Finder 的 Homebrew／用户命令路径、菜单栏模板图标、Dock 重开和 Cmd+Q；只在 Linux 传入 X11 启动参数。关闭客户端不转移本机计算，退出与明确停止助手的语义沿用现有实现。Windows、跨设备任务迁移、完整新机器自动装依赖和签名更新仍未实现。
+Mac 入口补齐 Finder 的 Homebrew／用户命令路径、菜单栏模板图标、Dock 重开和 Cmd+Q；只在 Linux 传入 X11 启动参数。关闭客户端不转移本机计算，退出与明确停止助手的语义沿用现有实现。跨设备任务迁移、完整新机器自动装依赖和签名更新仍未实现。
 
 在 macOS 原生构建：
 
@@ -27,7 +62,7 @@ pnpm --dir desktop build:macos arm64
 
 打开新增的 **Loom · 独立助手** 应用／桌面快捷方式，或在原客户端连接页选择“从零配置一个独立助手”。独立入口使用 `--setup-experience`，有单独的桌面偏好、单实例锁和窗口类别；原客户端可以继续打开原任务库。
 
-1. **本机环境**：选择现有办公引擎目录，检查 Node、dsh、Python、tmux 和飞书 CLI，点击“准备运行环境”创建全新的 Harness home/profile，并加载本地 bundle。此时不启动监听器，也不导入任何模型、飞书或邮件凭据。
+1. **本机环境**：选择现有办公引擎目录，检查本机依赖。Linux／Mac 使用 Node、dsh、Python、tmux 和飞书 CLI；Windows 使用 Node、dsh、Git 和飞书 CLI。点击“准备运行环境”创建全新的 Harness home/profile，并加载本地 bundle。此时不启动监听器，也不导入任何模型、飞书或邮件凭据。
 2. **模型**：填写兼容 API 地址、模型 ID 和 API Key；实际向所填地址发送一条固定的短连接测试，可能产生少量 API 费用，不包含个人资料。不把 HTTP 连通等同于复杂工具调用或任务质量验收。
 3. **飞书**：本机填写 App ID／Secret，校验租户凭证、机器人身份以及 bot-only CLI。Secret 通过独立的 CLI file SecretRef 使用，不调用会覆盖共享 app-ID keychain 的 `config init`。飞书应用创建、机器人能力、长连接消息订阅、权限发布及企业审批仍须在平台完成；向导说明这些前置步骤，不伪造已开通状态。
 4. **消息范围**：选择本应用下的本人 Open ID，可从机器人已加入群的成员中选择；私聊默认开、群默认不选，最多 3 个群，可区分仅 @／全部消息。仅一个所有者可发起任务，其他群关闭；自主模式默认 observe，可明确选择 auto。所有者是本机用户在配置页确认的身份，不是新增的飞书用户 OAuth 登录。
@@ -72,12 +107,12 @@ pnpm desktop:install
 
 0.1.1 修复当前 Wayland 桌面中只有托盘、没有可见窗口的问题：通过进程启动参数 `--ozone-platform=x11` 使用已有 XWayland；直接打开包内二进制时也会在创建窗口和连接后台之前补参数重启一次。不能用主进程启动后追加同名开关代替，因为显示后端可能已经初始化。安装入口的 `StartupWMClass=loom` 与真实窗口匹配，托盘菜单仅在状态改变时更新，避免每轮检测都替换正在操作的菜单。当前验证范围为有 `DISPLAY` 的 X11／XWayland，纯 Wayland 尚未验收。
 
-生命周期适配复用现有 personal-superagent 脚本：检测单一进程／项目归属、后台在线时只连接，手动停止不自动重启，操作期间串行化。缺构建或运行依赖时不尝试执行。暂停、接管、产物版本及邮件授权仍由原后端检查，不由桌面窗口重置。桌面进程不是新的设备沙箱，当前同一 OS 用户的权限假设不变。
+Linux／Mac 的生命周期适配复用现有 personal-superagent 脚本；Windows 使用原生命名管道控制器。两者均检测单一进程／项目归属、后台在线时只连接，手动停止不自动重启，操作期间串行化。缺构建或运行依赖时不尝试执行。暂停、接管、产物版本及邮件授权仍由原后端检查，不由桌面窗口重置。桌面进程不是新的设备沙箱，当前同一 OS 用户的权限假设不变。
 
 `desktop/test/runtime.test.cjs` 验证现有服务复用、并发启动去重、手动停止、缺依赖、进程归属、错误脱敏、URL／资源／IPC 来源和通知变化。可选 `LOOM_DESKTOP_SMOKE_DIR=受限目录 pnpm desktop:start` 启动实际 Electron 自检，读取真实工作空间、检查无特权工作空间、记录连接页和工作空间截图，验证原生导航、单实例、关闭后台继续及重新打开；不创建业务任务、不发飞书消息或邮件。打包后亦可对包内 loom 执行同样的自检。实际结果记录在 `PERSONAL_ACCEPTANCE.md`，不把测试替身当作真实运行证据。
 
 实际窗口自检另外需要系统已有的 `xwininfo` 和 `xprop`，按本应用的原生窗口 ID 核验 PID 与 `IsViewable`，覆盖托盘菜单回调重开、隐藏后再次启动及最小化后再次启动。仅检查 `isVisible()` 或渲染截图不足以证明用户真的看得到窗口。
 
-后续新机器依赖安装、其他系统、Developer ID／公证、签名更新和跨设备接入需要单独补齐；本轮仍是单人、本机范围。参考 [Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security) 和 [WebContentsView](https://www.electronjs.org/docs/latest/api/web-contents-view)。
+后续新机器依赖安装、其他处理器架构、Developer ID／公证、签名更新和跨设备接入需要单独补齐；本轮仍是单人、本机范围。参考 [Electron 安全指南](https://www.electronjs.org/docs/latest/tutorial/security) 和 [WebContentsView](https://www.electronjs.org/docs/latest/api/web-contents-view)。
 
 首次配置另有 `desktop/test/onboarding.test.cjs`、`tests/personal-setup.spec.ts` 与服务脚本测试。可选 `node desktop/test/integration-runtime.cjs` 实际创建、初始化、启动并停止独立 Harness，外部飞书／模型使用替身；`LOOM_DESKTOP_SETUP_SMOKE_DIR=<受限目录>` 配合 `--setup-experience` 验证真实原生窗口、五步表单、密码清理、群名称按文本显示及最终确认。UI 中的云端校验同样使用明确标注的测试替身，不等于新应用真实权限或真实付费模型验收。

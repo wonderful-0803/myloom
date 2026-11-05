@@ -14,6 +14,13 @@ const Input = z.object({
 }).strict()
 export type PersonalSetupInput = z.input<typeof Input>
 export function initializePersonalSettings(input: PersonalSetupInput): void {
+  writePersonalSettings(input, false)
+}
+/** Updates a stopped, desktop-owned first-run instance without replacing its database or settings history. */
+export function reconfigurePersonalSettings(input: PersonalSetupInput): void {
+  writePersonalSettings(input, true)
+}
+function writePersonalSettings(input: PersonalSetupInput, reconfigure: boolean): void {
   const value = Input.parse(input)
   const stateDir = resolve(value.stateDir), parent = dirname(stateDir)
   if (!existsSync(join(parent, '.loom-instance'))) throw new Error('Not a desktop-owned assistant directory')
@@ -25,7 +32,9 @@ export function initializePersonalSettings(input: PersonalSetupInput): void {
   const lock = join(stateDir, '.desktop-initialization.lock'), fd = openSync(lock, 'wx', 0o600)
   try {
     if (existsSync(marker) && readFileSync(marker, 'utf8') === request && existsSync(join(stateDir, 'orchestrator.sqlite'))) return
-    if (existsSync(join(stateDir, 'orchestrator.sqlite'))) throw new Error('Existing assistant state is never replaced')
+    const existing = existsSync(join(stateDir, 'orchestrator.sqlite'))
+    if (existing && (!reconfigure || !existsSync(marker))) throw new Error('Existing assistant state is never replaced')
+    if (existing) Input.parse(JSON.parse(readFileSync(marker, 'utf8')))
     const feishu = feishuKind.schema.parse({ cli: value.botCli, ownerOnly: true, directMessages: value.directMessages,
       chats: value.chats, otherChats: 'none', cardsEnabled: false, draftsEnabled: false, mailCli: '', smtpCli: '' })
     const settings = SettingsSchema.parse({ paused: false, sources: { github: { enabled: false, config: {} }, feishu: { enabled: true, config: feishu } },
@@ -36,8 +45,11 @@ export function initializePersonalSettings(input: PersonalSetupInput): void {
       ] }, eval: { mode: value.mode, model: { provider: 'loom', model: value.model }, timeoutSeconds: 120 },
       executor: { model: { provider: 'loom', model: value.model }, maxWorkers: 2, directory: '', prepare: '', blockedCommands: [] } })
     const store = new Store(join(stateDir, 'orchestrator.sqlite'))
-    try { store.saveSettings(settings, { source: 'panel', policyVersion: policyVersion(settings), policyChanged: true, notified: [] }) }
+    try {
+      if (existing && store.tickets.list().length) throw new Error('This assistant already has tasks; use workspace settings or a new instance')
+      store.saveSettings(settings, { source: 'panel', policyVersion: policyVersion(settings), policyChanged: true, notified: [] })
+    }
     finally { store.db.close() }
-    writeFileSync(marker, request, { flag: 'wx', mode: 0o600 })
+    writeFileSync(marker, request, { flag: existing ? 'w' : 'wx', mode: 0o600 })
   } finally { closeSync(fd); unlinkSync(lock) }
 }

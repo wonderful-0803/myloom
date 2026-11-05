@@ -1497,6 +1497,8 @@ it('fails a ticket at once on a worker error that is not passing, and relays it'
 it('refuses the main Session a bash command that runs sleep and a long job wait, as reports arrive by themselves, and no worker', async () => {
   const bash = (command: string) => ({ name: 'bash', arguments: { command, description: 'x' } })
   const main = guards.get(runtime.masterId)!
+  expect(main({ name: 'pwsh', arguments: { command: 'Start-Sleep -Seconds 60' } })).toMatch(/^Reports/)
+  expect(main({ name: 'pwsh', arguments: { command: 'Write-Output "sleep"', timeoutMs: 1000 } })).toBeUndefined()
   for (const command of ['sleep 60; echo done', 'cd x && sleep 5', 'gh pr checks 7 || sleep 30', 'echo a\nsleep 90', 'while true; do sleep 30; done',
     '(sleep 5)', '/bin/sleep 240', 'while sleep 30; do gh pr checks 7; done', 'if sleep 5; then gh pr view 7; fi', '{ sleep 60; }', '! sleep 5',
     'nohup sleep 60', 'exec sleep 60', 'time sleep 60', 'until sleep 1; do :; done', 'command sleep 5', 'env sleep 5'])

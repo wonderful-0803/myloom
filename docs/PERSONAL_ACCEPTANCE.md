@@ -319,3 +319,29 @@ Worker 的 ready 工具可用 artifact_file 明确登记自身目录的 .md／.t
 初轮 Mac CI 发现 setup-node 的自动 pnpm 缓存先于 pnpm 安装，以及测试夹具把 `/var` 与 `/private/var` 当作不同目录；修正安装顺序及真实路径断言后，以上最终运行全部通过。Linux 本地 17 项桌面测试、23 项架构文档／服务脚本测试与 Linux 打包通过；对打包后的 0.3.0 运行独立偏好目录的实际窗口自检，验证任务导航、工作空间无原生权限、单实例、最小化／隐藏重开、托盘回调及后台继续在线，未重启既有服务。日志及本机证据为 `.artifacts/macos-desktop-tests-final.log`、`.artifacts/macos-docs-service-tests.log`、`.artifacts/macos-linux-regression-smoke/acceptance.json`；Mac 原生截图和报告随对应 CI artifact 保存。
 
 Mac 完整账户配置、真实模型工具调用、飞书收发及长期后台运行尚未在用户的目标 Mac 联调，不能由空白原生启动推定完成。完整办公引擎及 Harness／CLI 依赖不包含在客户端 ZIP 中，仍须先准备；不自动导入开发者或其他设备的账号与任务，也未实现设备迁移、云端执行、自动升级和 Developer ID／公证发行。
+
+## 首次配置返回修改修复 0.4.1（2026-11-05）
+
+用户在最后一步失败后发现“返回修改”被禁用。原实现把数据库初始化后的 `frozen` 同时当作永久导航锁，导致启动失败也无法回到前面的表单。0.4.1 增加明确的编辑状态：返回时先确认当前本机实例停止，再解锁模型、机器人与消息范围；保存编辑状态后重开仍可继续。同一个未产生任务的首次配置数据库可追加设置版本，已有任务或非本向导数据库不会被覆盖。界面更换机器人时清除原机器人所选群与本人，避免旧范围混入新配置。
+
+同时修复模型凭据兼容性：Harness 会把 `.credentials.yaml` 写成带 records 的 YAML，原 JSON-only 读取会得到空 Key 并导致 401。客户端使用固定 `yaml@2.9.1` 解析，缺失／格式错误在本地失败，更新模型 Key 保留其他引用与 Harness 记录。打包只添加该已固定的纯代码依赖，不复制开发机的其他 node_modules 或凭据。
+
+本机通过 27 项桌面测试、4 项首次配置持久化测试、类型检查和构建。已对打包后的 0.4.1 运行真实 Electron 回归：最后一步依次返回到消息范围、飞书和模型页，所有模型字段可编辑，编辑状态保存且实例 ID 不变，记录为 `.artifacts/windows-edit-acceptance.json`。隔离真实 Harness 回归通过首次启动失败、停止当前实例、修改消息范围、再次启动、连接工作空间和最终停止；记录为 `.artifacts/windows-edit-runtime.json`，其中 `failedStartEditRetried` 与 `actualHarnessStopped` 为 true。外部模型／飞书接口仍用替身，未发送业务消息。
+
+用户确认已有另一个飞书实例，要求暂不处理占用；本次保留该实例，仅更新本机客户端。新的 Windows 包为 `desktop/dist/Loom-0.4.1-windows-x64.zip`，可执行程序位于 `desktop/dist/windows-0.4.1/Loom-win32-x64/Loom.exe`。
+
+## Windows 原生客户端 0.4.0（2026-11-05）
+
+用户要求拉取仓库并运行 Windows 客户端，明确不复用 WSL。工作目录同步到 `d7c7fcc` 后，在原 Electron 45.2.2 客户端上实现原生 win32/x64 适配。新增 Windows 图标、可移植 exe／ZIP、原生命令解析、LocalAppData 独立实例、当前用户目录 ACL，以及脱离窗口存活的 Node 后台控制器。命名管道以随机能力令牌验证项目、profile、回环地址和 PID，拒绝重复或不明归属，安全停止等待实际进程退出；桌面退出不顺带结束后台，手动停止阻止自动重启。Windows 无需 tmux、Python 控制脚本或 Linux 环境。
+
+本机验证：
+
+- `pnpm typecheck`、`pnpm build:loom` 和 `pnpm build` 通过；使用原生 Node 24.19.0、Harness 0.2.1-rc.3、飞书 CLI 1.0.90。
+- 22 项桌面测试通过，包括 Unicode／空格／引号参数、独立配置、单一进程、错误令牌拒绝、后台进程复用、安全停止、手动停止、未知端口及 PID 归属拒绝。没有依赖 WSL 或管理员目录符号链接权限。
+- `tests/windows-process.spec.ts` 和 `tests/personal-setup.spec.ts` 共 8 项通过，真实执行原生 CLI、机器人校验替身与 PowerShell；回归 `tests/runtime.spec.ts` 的路由器等待限制和工具许可 2 项通过。
+- 打包后实际运行 `Loom.exe`，从 Windows `Get-Process` 核实 HWND 和窗口标题，同时检查 Electron 原生句柄。首次配置的密钥／身份字段为空，引擎选择可用，窗口可隐藏恢复；工作空间仍无 preload／Node，启用 sandbox、contextIsolation 和 webSecurity。带本仓库引擎路径的检查中，Node、Git、Harness 和飞书 CLI 均识别成功。证据在 `.artifacts/windows-native-packaged-engine/windows-launch.json` 与 `windows-first-run.png`。
+- `desktop/test/integration-runtime.cjs` 在 Windows 实际创建独立 Harness profile、加载本地 bundle、初始化真实办公设置，启动真实 Harness 并从 Loom API 读回空任务库及机器人信息，等待模拟消费者 ready，再安全停止并确认没有存活 PID。验收 JSON 汇总为 `.artifacts/windows-native-integration.json`；模型与飞书 HTTP／CLI 为隔离替身，不代表真实账户、付费模型或业务任务验收。
+
+真实原生启动发现并修复了路由器写死 `bash` 的许可列表；Windows 只注册 `pwsh` 时不再启动失败，办公模式禁止 shell 与等待限制同时覆盖两者。扩展回归还发现 CRLF 命令文件所有权标记读取失败，已修复并以重复生成、拒绝外来文件的原生用例覆盖。部分原有测试夹具仍直接依赖 Unix `env`／`sh`、无扩展名脚本、POSIX PATH 及符号链接权限，本机扩展回归未全部通过，不将这些测试记为 Windows 已验收。
+
+`desktop/dist/Loom-0.4.0-windows-x64.zip` 及对应 SHA-256／JSON 是原生 x64 包，显式客户端文件清单排除凭据、开发机默认路径、任务历史和引擎依赖。ZIP 尚无发布者代码签名；尚未验证 Windows ARM64、真实飞书收发、实际模型工具调用、长期任务恢复、跨设备迁移或新机器一键安装。首次运行需要本机引擎和依赖，并由用户在向导输入自己的账户。

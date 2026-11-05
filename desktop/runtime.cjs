@@ -3,8 +3,11 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { execFile } = require('node:child_process')
 const { serviceURL } = require('./policy.cjs')
+const nativeCommands = require('./commands.cjs')
+const { NativeWindowsControl } = require('./native-windows.cjs')
 
 function executable(name, environment = process.env) {
+  if (process.platform === 'win32') return nativeCommands.executable(name, environment)
   return (environment.PATH || '').split(path.delimiter).map(folder => path.join(folder, name)).find(file => {
     try { fs.accessSync(file, fs.constants.X_OK); return fs.statSync(file).isFile() } catch { return false }
   })
@@ -46,14 +49,17 @@ class RuntimeLink {
     this.run = dependencies.run || command
     this.request = dependencies.request || json
     this.find = dependencies.executable || executable
+    if (process.platform === 'win32' && !dependencies.executable) this.find = name => nativeCommands.executable(name, process.env, this.root)
+    this.native = dependencies.control || (process.platform === 'win32' && !dependencies.run ? new NativeWindowsControl(config) : undefined)
     this.busy = false
     this.snapshot = undefined
     this.state = { phase: 'checking', connected: false, message: '正在识别本机个人助手…', backendRoot: this.root, serviceURL: this.base }
   }
-  async invoke(action) {
+  async invoke(action, explicit = false) {
     const found = installation(this.root)
     if (!found.valid) throw new Error(found.missing[0])
-    return this.run(path.join(found.root, 'scripts/personal-superagent'), [action, '--url', this.base, '--timeout', '45', '--stop-timeout', '45', ...this.profile ? ['--profile', this.profile] : [], ...action === 'start' ? ['--respect-stop'] : []],
+    if (this.native) { this.native.root = found.root; return this.native.invoke(action, explicit) }
+    return this.run(path.join(found.root, 'scripts/personal-superagent'), [action, '--url', this.base, '--timeout', '45', '--stop-timeout', '45', ...this.profile ? ['--profile', this.profile] : [], ...action === 'start' && !explicit ? ['--respect-stop'] : []],
       { cwd: found.root, env: this.environment(), timeout: action === 'status' ? 9000 : 55_000, maxBuffer: 128 * 1024, encoding: 'utf8', windowsHide: true })
   }
   environment() { return { ...process.env, ...this.runtimeHome ? { DSH_PERSONAL_HOME: this.runtimeHome, DSH_AGENTS_HOME: path.join(path.dirname(this.runtimeHome), 'agents') } : {} } }
@@ -65,7 +71,7 @@ class RuntimeLink {
   }
   async inspect() {
     const found = installation(this.root)
-    const missing = ['dsh', 'python3', 'tmux'].filter(name => !this.find(name))
+    const missing = (process.platform === 'win32' ? ['node', 'dsh'] : ['dsh', 'python3', 'tmux']).filter(name => !this.find(name))
     if (!found.valid || missing.length) return this.state = { phase: 'missing', connected: false, backendRoot: this.root, serviceURL: this.base,
       message: found.missing[0] || '本机运行依赖尚未准备好。', missing: [...found.missing, ...missing.map(name => `缺少运行依赖：${name}`)] }
     this.root = found.root
@@ -105,11 +111,7 @@ class RuntimeLink {
     this.state = { ...this.state, phase: action === 'start' ? 'starting' : 'stopping', message: action === 'start' ? '正在启动本机助手…' : '正在安全停止助手…' }
     this.changed?.()
     try {
-      if (explicit && action === 'start') {
-        const found = installation(this.root)
-        await this.run(path.join(found.root, 'scripts/personal-superagent'), ['start', '--url', this.base, '--timeout', '45', ...this.profile ? ['--profile', this.profile] : []],
-          { cwd: found.root, env: this.environment(), timeout: 55_000, maxBuffer: 128 * 1024, encoding: 'utf8', windowsHide: true })
-      } else await this.invoke(action)
+      await this.invoke(action, explicit)
     } catch { this.state = { ...this.state, phase: 'unavailable', connected: false, message: '助手操作未确认，请重新检测实际状态；没有强制结束进程。' } }
     finally { this.busy = false }
     return this.probe()

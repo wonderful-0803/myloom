@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
+const { pathToFileURL } = require('node:url')
 const { RuntimeLink, installation } = require('../runtime.cjs')
 const policy = require('../policy.cjs')
 const directories = []
@@ -93,8 +94,9 @@ test('restricts service targets, workspace navigation, IPC shell URLs and file d
   assert.equal(policy.workspaceRequest('https://example.com/pixel', base), false)
   assert.ok(policy.workspaceRequest('blob:' + base + '/file', base))
   assert.equal(policy.workspaceRequest('blob:https://evil.example/file', base), false)
-  assert.ok(policy.localShell('file:///opt/loom/ui/index.html', '/opt/loom/ui/index.html'))
-  assert.equal(policy.localShell('file:///opt/loom/ui/index.html?code=1', '/opt/loom/ui/index.html'), false)
+  const shellFile = path.join(os.tmpdir(), 'loom desktop', 'ui/index.html'), shellURL = pathToFileURL(shellFile).href
+  assert.ok(policy.localShell(shellURL, shellFile))
+  assert.equal(policy.localShell(shellURL + '?code=1', shellFile), false)
   assert.ok(!policy.downloadName('../.hidden\nreport.txt').includes('/'))
 })
 test('denies unsafe external links and only notifies on fresh meaningful task transitions', () => {

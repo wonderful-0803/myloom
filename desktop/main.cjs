@@ -15,7 +15,10 @@ app.setName('luxi-loom')
 const setupExperience = process.argv.includes('--setup-experience')
 const setupSmoke = process.env.LOOM_DESKTOP_SETUP_SMOKE_DIR
 const macSmoke = process.env.LOOM_MACOS_SMOKE_DIR
-if (setupExperience) app.setPath('userData', setupSmoke || macSmoke ? path.join(path.resolve(setupSmoke || macSmoke), 'preferences') : path.join(app.getPath('appData'), 'luxi-loom-first-run'))
+const windowsSmoke = process.env.LOOM_WINDOWS_SMOKE_DIR
+if (windowsSmoke && process.platform === 'win32') app.setPath('userData', path.join(path.resolve(windowsSmoke), 'preferences'))
+else if (setupExperience) app.setPath('userData', setupSmoke || macSmoke ? path.join(path.resolve(setupSmoke || macSmoke), 'preferences') : path.join(app.getPath('appData'), 'luxi-loom-first-run'))
+if (process.platform === 'win32') app.setAppUserModelId(setupExperience ? 'dev.luxi.loom.setup' : 'dev.luxi.loom')
 // Ozone can initialize before main.cjs. Appending this switch here is too late on
 // Wayland hosts: Electron may report a visible window without a mapped X window.
 // The launcher supplies it at process startup; direct binary launches relaunch once.
@@ -26,8 +29,8 @@ if (process.platform === 'linux' && process.env.DISPLAY && app.commandLine.getSw
 }
 app.enableSandbox()
 // Office UI does not need GPU acceleration; software rendering avoids Linux driver incompatibilities without disabling the sandbox.
-app.disableHardwareAcceleration()
-if (!['linux', 'darwin'].includes(process.platform)) { app.whenReady().then(() => { dialog.showErrorBox('Loom', '此版本支持 Linux 和 macOS。'); app.quit() }); return }
+if (process.platform !== 'win32') app.disableHardwareAcceleration()
+if (!['linux', 'darwin', 'win32'].includes(process.platform)) { app.whenReady().then(() => { dialog.showErrorBox('Loom', '此版本支持 Linux、macOS 和 Windows。'); app.quit() }); return }
 if (!app.requestSingleInstanceLock()) { app.quit(); return }
 
 let window, workspace, tray, trayMenu, trayState, runtime, onboarding, projectRootHint, quitting = false, timer, previous, statusOpen = false, refreshing = false, selectedPage = 'overview', requestedWorkspace = '', workspaceLoaded = false
@@ -39,7 +42,7 @@ const smokeDirectory = process.env.LOOM_DESKTOP_SMOKE_DIR
 function link() { const value = new RuntimeLink(preferences); value.changed = publish; return value }
 function openSetup() {
   const env = { ...process.env }
-  for (const name of ['LOOM_DESKTOP_SMOKE_DIR', 'LOOM_DESKTOP_SMOKE_KEEP_OPEN', 'LOOM_DESKTOP_SETUP_SMOKE_DIR', 'LOOM_MACOS_SMOKE_DIR', 'ELECTRON_RUN_AS_NODE']) delete env[name]
+  for (const name of ['LOOM_DESKTOP_SMOKE_DIR', 'LOOM_DESKTOP_SMOKE_KEEP_OPEN', 'LOOM_DESKTOP_SETUP_SMOKE_DIR', 'LOOM_MACOS_SMOKE_DIR', 'LOOM_WINDOWS_SMOKE_DIR', 'LOOM_WINDOWS_SMOKE_KEEP_OPEN', 'ELECTRON_RUN_AS_NODE']) delete env[name]
   const child = spawn(process.execPath, platform.setupArguments(app.isPackaged, app.getAppPath()), { env, detached: true, stdio: 'ignore' })
   child.unref()
 }
@@ -57,13 +60,18 @@ function initialPreferences() {
   projectRootHint = typeof defaults.backendRoot === 'string' ? defaults.backendRoot : path.resolve(__dirname, '..')
   preferences.backendRoot = typeof candidate.backendRoot === 'string' ? candidate.backendRoot : path.resolve(__dirname, '..')
   if (setupExperience && !saved.backendRoot) preferences.backendRoot = ''
+  const engineOption = process.argv.indexOf('--engine-root')
+  if (engineOption !== -1) {
+    const { installation } = require('./runtime.cjs'), found = installation(process.argv[engineOption + 1])
+    if (found.valid) { projectRootHint = found.root; preferences.backendRoot = found.root }
+  }
   if (saved.runtimeHome && saved.profile) { preferences.runtimeHome = saved.runtimeHome; preferences.profile = saved.profile }
   try { preferences.serviceURL = policy.serviceURL(candidate.serviceURL) } catch {}
   preferences.notifications = saved.notifications === true
 }
 function state() {
   return { ...runtime.state, workspaceURL: policy.workspaceURL(runtime.base, selectedPage), statusOpen,
-    notifications: preferences.notifications, desktopVersion: app.getVersion(), busy: runtime.busy, onboarding: onboarding?.view() }
+    notifications: preferences.notifications, desktopVersion: app.getVersion(), platformLabel: platform.platformLabel(), busy: runtime.busy, onboarding: onboarding?.view() }
 }
 function publish() {
   if (!window || window.isDestroyed()) return
@@ -198,10 +206,10 @@ app.on('activate', () => show())
 app.whenReady().then(async () => {
   if (setupExperience && process.platform === 'linux') app.setDesktopName('luxi-loom-setup.desktop')
   initialPreferences()
-  const existingHome = process.env.DSH_PERSONAL_HOME || path.join(process.env.XDG_DATA_HOME || path.join(app.getPath('home'), '.local/share'), 'superagent/dsh')
+  const existingHome = process.env.DSH_PERSONAL_HOME || path.join(platform.dataHome(), 'superagent/dsh')
   if (setupExperience || !preferences.runtimeHome && !fs.existsSync(path.join(existingHome, 'profiles/superagent/package.json'))) {
     onboarding = new Onboarding({ directory: app.getPath('userData'), projectRoot: projectRootHint,
-      dataRoot: setupSmoke || macSmoke ? path.join(path.resolve(setupSmoke || macSmoke), 'data') : undefined,
+      dataRoot: setupSmoke || macSmoke || windowsSmoke ? path.join(path.resolve(setupSmoke || macSmoke || windowsSmoke), 'data') : undefined,
       legacy: { backendRoot: projectRootHint, serviceURL: 'http://127.0.0.1:3082' } })
     onboarding.changed = publish
     onboarding.completed = connection => { Object.assign(preferences, connection); savePreferences(); runtime = link() }
@@ -253,6 +261,8 @@ app.whenReady().then(async () => {
   await refresh(true)
   timer = setInterval(() => void refresh().catch(() => {}), 4000)
   publish()
+  if (windowsSmoke && process.platform === 'win32') require('./windows-smoke.cjs').run({ app, window, workspace, tray, onboarding, runtime,
+    show, directory: windowsSmoke, keepOpen: process.env.LOOM_WINDOWS_SMOKE_KEEP_OPEN === '1', quit: () => { quitting = true; app.quit() } })
   if (process.env.LOOM_MACOS_SMOKE_DIR && process.platform === 'darwin') require('./macos-smoke.cjs').run({ app, window, workspace, onboarding,
     directory: process.env.LOOM_MACOS_SMOKE_DIR, quit: () => { quitting = true; app.quit() } })
   if (setupSmoke && onboarding?.active) require('./setup-smoke.cjs').run({ app, window, workspace, onboarding, directory: setupSmoke, quit: () => { quitting = true; app.quit() } })

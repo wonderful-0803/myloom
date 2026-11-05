@@ -14,6 +14,7 @@ import { health, type SourceContext } from './host.ts'
 import { KV } from '../kv.ts'
 import { cursorAt, POLL_HORIZON_MS, polled, pollThreads as pollEach } from './poll.ts'
 import type { FeishuConfig } from './feishu.ts'
+import { commandArgv } from '../infra/process.ts'
 
 export const runFeishu = (ctx: SourceContext, signal: AbortSignal): Promise<unknown> =>
   Promise.allSettled([watch(ctx, signal), watch(ctx, signal, 'card.action.trigger', 'cards'), backfillLoop(ctx, signal), chatNamesLoop(ctx, signal)])
@@ -69,8 +70,9 @@ async function watch(ctx: SourceContext, signal: AbortSignal, eventKey = 'im.mes
 export const consumerRetry = (previous: number | undefined, ranMs: number): number =>
   previous === undefined || ranMs >= 60_000 ? 1000 : Math.min(previous * 2, 60_000)
 async function consume(ctx: SourceContext, signal: AbortSignal, eventKey: string, entry: string): Promise<void> {
-  const child = spawn(bot(ctx).cli, ['event', 'consume', eventKey, '--as', 'bot'],
-    { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
+  const [executable, ...args] = commandArgv(bot(ctx).cli, ['event', 'consume', eventKey, '--as', 'bot'])
+  const child = spawn(executable!, args,
+    { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
       LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } })
   const stdout = createInterface({ input: child.stdout }); const stderr = createInterface({ input: child.stderr })
   let chain = Promise.resolve(); let diagnostic = ''; let ready = false; let unhealthy = false

@@ -10,6 +10,7 @@ import type { SubprocessOutputReader, SubprocessRuntime } from '@deepseek-ai/dsh
 import type { Deployment } from '../deployment.ts'
 import { SetupError } from '../setup.ts'
 import { CliError } from './commands.ts'
+import { windowsShims } from './windows-environment.ts'
 
 const MARKER = '# Written by dsh-superagent on every start; edits are lost.'
 /** Markers of files written under the project's earlier names (`dsh-tag`, `dsh-go`, `dsh-freelancer`), which `dsh-superagent` owns and replaces too. */
@@ -60,8 +61,8 @@ export function agentVariables(stateDir: string): Record<string, string | undefi
 /** True when a regular file starts with the dsh-superagent marker in its first two lines; a symbolic link, directory, or other non-regular file never counts as written by dsh-superagent. */
 async function written(file: string): Promise<boolean> {
   if (!(await lstat(file)).isFile()) return false
-  const head = (await readFile(file, 'utf8')).split('\n', 2)
-  return [MARKER, ...LEGACY_MARKERS].some(marker => head.includes(marker))
+  const head = (await readFile(file, 'utf8')).split(/\r?\n/, 2)
+  return [MARKER, ...LEGACY_MARKERS].some(marker => head.includes(marker) || head.includes('// ' + marker) || head.includes('@rem ' + marker))
 }
 async function own(file: string, text: string, mode = 0o644): Promise<void> {
   let foreign = false
@@ -83,7 +84,7 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   const before = await readdir(dir)
   for (const name of before) { const file = join(dir, name); if (!await written(file)) throw new SetupError('foreignFile', { file }) }
   // Workers may be running concurrently: write each shim to a temp file and atomically rename it so no command ever resolves past the shim directory.
-  const kept = new Set<string>()
+  const kept = process.platform === 'win32' ? await windowsShims(dir, deployment, blockedCommands, own) : new Set<string>()
   const shim = async (name: string, body: string): Promise<void> => {
     const temporary = join(dir, `.${name}.${process.pid}.tmp`)
     await writeFile(temporary, `#!/bin/sh\n${MARKER}\n${body}\n`, { mode: 0o755 })
@@ -97,10 +98,12 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   ].join('\n')
   const run = (program: string): string => `${withoutShims}\nexec ${shellQuote(program)} "$@"`
   const fail = (message: string): string => `echo ${shellQuote(message)} >&2\nexit 1`
-  await shim('gh', github ? run(github.cli) : fail('gh is unavailable: this installation has no GitHub account.'))
-  await shim('lark-cli', feishu ? run(feishu.cli) : fail('lark-cli is unavailable: this installation has no Feishu bot.'))
-  for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {
-    await shim(name, fail(github ? `${name} is blocked in this installation; use gh, which acts as ${github.login}.` : `${name} is blocked in this installation.`))
+  if (process.platform !== 'win32') {
+    await shim('gh', github ? run(github.cli) : fail('gh is unavailable: this installation has no GitHub account.'))
+    await shim('lark-cli', feishu ? run(feishu.cli) : fail('lark-cli is unavailable: this installation has no Feishu bot.'))
+    for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {
+      await shim(name, fail(github ? `${name} is blocked in this installation; use gh, which acts as ${github.login}.` : `${name} is blocked in this installation.`))
+    }
   }
   for (const name of before) if (!kept.has(name)) await unlink(join(dir, name))
   await own(workerGitConfig(stateDir), [
@@ -139,7 +142,9 @@ export async function verifyEnvironment(deployment: Pick<Deployment, 'github' | 
   const { github, stateDir } = deployment
   // `-z` separates fields with NUL and never quotes paths.
   const helpers = (await runAsWorker(subprocess, ['git', 'config', '-z', '--show-origin', '--get-all', 'credential.https://github.com.helper'], stateDir, AbortSignal.any([signal, AbortSignal.timeout(60_000)])).catch(() => '')).split('\0')
-  if (helpers.join('\0') !== [`file:${workerGitConfig(stateDir)}`, github ? credentialHelper(github.cli) : '!exit 1', ''].join('\0')) throw new SetupError('gitTooOld')
+  const expected = `file:${workerGitConfig(stateDir)}`
+  if (process.platform === 'win32' && helpers[0]?.replaceAll('\\', '/').toLowerCase() === expected.replaceAll('\\', '/').toLowerCase()) helpers[0] = expected
+  if (helpers.join('\0') !== [expected, github ? credentialHelper(github.cli) : '!exit 1', ''].join('\0')) throw new SetupError('gitTooOld')
 }
 
 /**

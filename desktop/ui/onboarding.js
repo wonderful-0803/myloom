@@ -2,7 +2,7 @@
 window.loomOnboarding = (() => {
   const el = id => document.getElementById(id), bridge = window.loomDesktop
   const names = ['本机环境', '模型', '飞书', '消息范围', '检查并启动']
-  let step, hydrated = false, current, groupSignature = '', memberSignature = '', operating = false
+  let step, hydrated = false, current, groupSignature = '', memberSignature = '', operating = false, botAppId = ''
   const selected = new Map()
   function text(tag, value, className) { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node }
   function showStep(value) {
@@ -15,6 +15,10 @@ window.loomOnboarding = (() => {
     }))
   }
   function render(state) {
+    if (botAppId && state?.bot?.appId && botAppId !== state.bot.appId) {
+      selected.clear(); el('setup-owner').value = ''; el('setup-consent').checked = false; groupSignature = ''; memberSignature = ''
+    }
+    botAppId = state?.bot?.appId || ''
     current = state
     el('onboarding-panel').hidden = !state?.active
     if (!state?.active) return
@@ -80,7 +84,8 @@ window.loomOnboarding = (() => {
     el('setup-conflicts').replaceChildren(...state.conflicts.map(item => text('div', `${item.name} 正在原环境运行（${item.active} 个未完成任务）。请先在原客户端明确停止监听，再回这里启动；原历史保留。`)))
     document.querySelectorAll('#onboarding-panel button, #onboarding-panel input, #onboarding-panel select').forEach(control => { control.disabled = state.busy || operating })
     document.querySelectorAll('.setup-group').forEach(row => { row.querySelector('select').disabled ||= !row.querySelector('input').checked })
-    document.querySelectorAll('.setup-back').forEach(button => { button.disabled ||= state.frozen })
+    el('setup-base').readOnly = el('setup-model').readOnly = !!state.frozen
+    el('setup-provider').disabled ||= state.frozen
     el('setup-start').disabled ||= !el('setup-consent').checked
     el('setup-prepare').disabled ||= state.environment.some(check => !check.available)
     el('setup-choose-engine').disabled ||= state.prepared
@@ -93,6 +98,7 @@ window.loomOnboarding = (() => {
       if (advance) step = result.onboarding.step
       operating = false; render(result.onboarding)
       window.dispatchEvent(new CustomEvent('loom-onboarding-state', { detail: result }))
+      return result
     } catch (error) {
       const state = await bridge.state(); operating = false; render(state.onboarding)
       el('setup-error').textContent = error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -115,7 +121,11 @@ window.loomOnboarding = (() => {
     void action('scope', { owner: el('setup-owner').value.trim(), directMessages: el('setup-direct').checked,
       chats: [...selected].map(([chatId, listen]) => ({ chatId, listen })), mode: document.querySelector('input[name="setup-mode"]:checked').value }, true)
   })
-  document.querySelectorAll('.setup-back').forEach(button => button.addEventListener('click', () => showStep(Math.max(0, step - 1))))
+  document.querySelectorAll('.setup-back').forEach(button => button.addEventListener('click', async () => {
+    const target = Math.max(0, step - 1)
+    if (current?.frozen && !await action('edit')) return
+    showStep(target)
+  }))
   el('setup-consent').addEventListener('change', () => { if (current) render(current) })
   el('setup-start').addEventListener('click', () => action('start', { consent: el('setup-consent').checked }, true))
   el('setup-console').addEventListener('click', () => bridge.action('feishu-console'))

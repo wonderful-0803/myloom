@@ -1,7 +1,7 @@
 {
   "name": "luxi-loom-desktop",
   "productName": "Loom",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "Loom — 陆兮个人助手桌面端",
   "private": true,
   "license": "MIT",
@@ -11,10 +11,15 @@
     "test": "node --test test/*.test.cjs",
     "build": "node scripts/package.cjs",
     "build:macos": "node scripts/package-macos.cjs",
+    "build:windows": "node scripts/package-windows.cjs",
+    "smoke:windows": "node scripts/smoke-windows.cjs",
     "install:local": "node scripts/install.cjs"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
     "electron": "45.2.2"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
   }
 }

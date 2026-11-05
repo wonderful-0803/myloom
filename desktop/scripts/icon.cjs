@@ -40,8 +40,18 @@ function buildMacIcons(directory) {
   const header = Buffer.alloc(8); header.write('icns'); header.writeUInt32BE(8 + entries.reduce((size, entry) => size + entry.length, 0), 4)
   fs.writeFileSync(path.join(directory, 'icon.icns'), Buffer.concat([header, ...entries]))
 }
+function buildWindowsIcon(directory) {
+  fs.mkdirSync(directory, { recursive: true })
+  const pngFile = path.join(directory, 'icon.png'); buildIcon(pngFile)
+  const png = fs.readFileSync(pngFile), header = Buffer.alloc(22)
+  header.writeUInt16LE(1, 2); header.writeUInt16LE(1, 4)
+  header.writeUInt16LE(1, 10); header.writeUInt16LE(32, 12)
+  header.writeUInt32LE(png.length, 14); header.writeUInt32LE(22, 18)
+  fs.writeFileSync(path.join(directory, 'icon.ico'), Buffer.concat([header, png]))
+}
 if (require.main === module) {
   if (process.platform === 'darwin') buildMacIcons(path.resolve(__dirname, '../assets'))
+  else if (process.platform === 'win32') buildWindowsIcon(path.resolve(__dirname, '../assets'))
   else buildIcon(path.resolve(__dirname, '../assets/icon.png'))
 }
-module.exports = { buildIcon, buildMacIcons }
+module.exports = { buildIcon, buildMacIcons, buildWindowsIcon }

@@ -66,11 +66,17 @@ test('an engine selected by the native picker survives reopening, including spac
 test('prepares an independent home, verifies actual API contracts, keeps secrets out of views and argv, and starts only on reviewed consent', async () => {
   const item = fixture(); await ready(item)
   const { setup, calls, requests, runtimeCalls } = item
+  const restored = new Onboarding({ directory: setup.directory, projectRoot: '', dataRoot: setup.dataRoot })
+  assert.equal(restored.projectRoot, setup.projectRoot)
   assert.equal(setup.view().step, 4); assert.equal(runtimeCalls.length, 0)
   assert.ok(calls.every(call => !call.args.join(' ').includes('secret')))
   assert.ok(!JSON.stringify(setup.view()).includes('test-model-secret'))
   assert.ok(!JSON.stringify(setup.view()).includes('test-application-secret'))
-  for (const file of ['dsh/.credentials.yaml', 'lark/app-secret', 'lark/config.json']) assert.equal(fs.statSync(path.join(setup.root, file)).mode & 0o777, 0o600)
+  for (const file of ['dsh/.credentials.yaml', 'lark/app-secret', 'lark/config.json']) {
+    assert.ok(fs.lstatSync(path.join(setup.root, file)).isFile())
+    // Native Windows uses owner ACLs; POSIX permission bits are checked on Unix.
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(setup.root, file)).mode & 0o777, 0o600)
+  }
   const config = JSON.parse(fs.readFileSync(path.join(setup.root, 'lark/config.json')))
   assert.equal(config.strictMode, 'bot'); assert.deepEqual(config.apps[0].users, []); assert.equal(config.apps[0].appSecret.source, 'file')
   assert.ok(calls[0].options.env.DSH_HOME.startsWith(setup.root))
@@ -106,4 +112,31 @@ test('reloads only its own saved metadata and blocks concurrent configuration op
   item.setup.busy = true
   await assert.rejects(item.setup.action('start', { consent: true }), /上一步/)
   assert.equal(item.runtimeCalls.length, 0)
+})
+
+test('returning from a failed startup stops only the current assistant, unlocks edits and preserves its instance', async () => {
+  const item = fixture(); await ready(item)
+  const { setup } = item, originalId = setup.config.id, originalHome = setup.root
+  setup.config.frozen = true; setup.persist()
+  let phase = 'ready'
+  const operations = []
+  setup.runtimeFactory = config => ({ probe: async () => ({ phase }), action: async (action, explicit) => { operations.push({ config, action, explicit }); phase = 'stopped'; return { phase } } })
+  await setup.action('edit')
+  assert.deepEqual(operations.map(({ action, explicit }) => ({ action, explicit })), [{ action: 'stop', explicit: true }])
+  assert.equal(operations[0].config.profile, setup.profile)
+  assert.equal(setup.view().frozen, false); assert.equal(setup.config.id, originalId); assert.equal(setup.root, originalHome)
+  await setup.action('model', { baseURL: 'https://other-models.example/v1', model: 'other-model', apiKey: 'new-model-fixture' })
+  await setup.action('scope', { owner: 'ou_owner', directMessages: true, chats: [], mode: 'auto' })
+  const restored = new Onboarding({ directory: setup.directory, dataRoot: setup.dataRoot, projectRoot: setup.projectRoot })
+  assert.equal(restored.view().frozen, false); assert.equal(restored.config.model.model, 'other-model'); assert.equal(restored.config.scope.mode, 'auto')
+})
+test('a failed stop keeps editing locked, and an absent model key sends no network request', async () => {
+  const item = fixture(); await ready(item)
+  item.setup.config.frozen = true
+  item.setup.runtimeFactory = () => ({ probe: async () => ({ phase: 'unavailable' }), action: async () => ({ phase: 'unavailable' }) })
+  await assert.rejects(item.setup.action('edit'), /尚未确认停止/)
+  assert.equal(item.setup.view().frozen, true)
+  const count = item.requests.length
+  await assert.rejects(item.setup.testModel(item.setup.config.model, undefined), /API Key/)
+  assert.equal(item.requests.length, count)
 })

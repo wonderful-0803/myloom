@@ -78,8 +78,8 @@ const SLEEP = /(?:^|[;&|({!`\n]|\b(?:do|then|else|elif|if|while|until|time|exec|
  */
 function noWait({ name, arguments: input }: { name: string; arguments: unknown }, routed: () => boolean): string | undefined {
   const args = (input ?? {}) as { command?: unknown; timeoutMs?: unknown; run_in_background?: unknown; wait?: unknown; timeout_ms?: unknown }
-  if (name === 'bash') {
-    const sleeps = typeof args.command === 'string' && SLEEP.test(args.command)
+  if (name === 'bash' || name === 'pwsh') {
+    const sleeps = typeof args.command === 'string' && (SLEEP.test(args.command) || name === 'pwsh' && /(?:^|[;|({\r\n])\s*(?:Start-Sleep|sleep)\b/i.test(args.command))
     if (sleeps || typeof args.timeoutMs === 'number' && args.timeoutMs > 30_000) return NO_WAIT
     if (args.timeoutMs === undefined && args.run_in_background !== true && !routed()) return DEFAULT_WAIT
   }
@@ -268,8 +268,10 @@ export class Sessions {
     const register = this.registerTool(agent, binding)
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
-      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
-        agent.ctx.tools.guard(execution => execution.name === 'bash' && host.store.settings().sources.github?.enabled === false
+      const parent = scopeParentOf(agent)
+      const allow = ['skill', 'bash', 'pwsh', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'].filter(name => agent.ctx.tools.get(name, parent))
+      binding.disposers.push(agent.ctx.tools.restrict({ allow }),
+        agent.ctx.tools.guard(execution => ['bash', 'pwsh'].includes(execution.name) && host.store.settings().sources.github?.enabled === false
           ? 'The personal office router uses orchestrator_read for source data; its shell is disabled'
           : noWait(execution, () => this.routed(agent))))
     } else {
