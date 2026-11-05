@@ -24,7 +24,7 @@
 - [ ] 结合连续讨论判断目标、对象、交付物及工作依据，检查已有任务，避免重复接单。
 - [ ] 区分候选线索、明确请求和预授权规则；信息不足时保留线索，不擅自扩大工作范围。
 - [x] 为主动规则提供观察模式，先记录拟执行的工作，再按配置启用自动执行。实现复用现有策略评估与规则；`tests/personal.spec.ts` 覆盖 observe/auto，真实测试群的无 @ 请求得到 `wouldAccept` 且无任务、无交付，见 `PERSONAL_ACCEPTANCE.md`。2026-11-04 按用户要求切为 auto，Loom 已提供模式及基础规则开关，范围与真实验收见 `PERSONAL_ACCEPTANCE.md`。
-- [x] 本机所有者可在 Loom 创建和启停“持续委托”，为单条规则明确目标、群范围、可选关键词及观察／自动模式，关联其任务与交付物。实现：`src/app/delegations.ts`、`src/policy.ts`、`loom/src/client/components/DelegationBoard.tsx`；`tests/delegations.spec.ts` 验证持久化、幂等、范围与消息新鲜度、真实任务／Worker／报告链路、停用及撤权后持有任务、恢复权限前拒绝继续。自动化测试中的模型判断及外部 API 使用替身，真实飞书自主接单质量仍须另行验收。基础规则可在 Loom 独立切换 observe／auto，不将创建回执伪装成群消息。新增 Codex 日报专用的定时／手动触发、项目／会话范围及持续读取用于汇总的独立授权，复用真实任务、受限 Worker 与现有报告交付；实现：`src/app/codex-daily.ts`、`src/codex-delegation.ts`；`tests/codex-daily.spec.ts` 与扩展 `tests/codex-history.spec.ts` 覆盖幂等、日界线、来源过滤和异步撤权，真实验收见 `PERSONAL_ACCEPTANCE.md`。文档评论、CI、通用时钟事件和逐委托执行预算仍未接入。
+- [x] 本机所有者可在 Loom 创建和启停“持续委托”，为单条规则明确目标、群范围、可选关键词及观察／自动模式，关联其任务与交付物。实现：`src/app/delegations.ts`、`src/policy.ts`、`loom/src/client/live/Delegations.tsx`；`tests/delegations.spec.ts` 验证持久化、幂等、范围与消息新鲜度、真实任务／Worker／报告链路、停用及撤权后持有任务、恢复权限前拒绝继续。自动化测试中的模型判断及外部 API 使用替身，真实飞书自主接单质量仍须另行验收。基础规则可在 Loom 独立切换 observe／auto，不将创建回执伪装成群消息。新增 Codex 日报专用的定时／手动触发、项目／会话范围及持续读取用于汇总的独立授权，复用真实任务、受限 Worker 与现有报告交付；实现：`src/app/codex-daily.ts`、`src/codex-delegation.ts`；`tests/codex-daily.spec.ts` 与扩展 `tests/codex-history.spec.ts` 覆盖幂等、日界线、来源过滤和异步撤权，真实验收见 `PERSONAL_ACCEPTANCE.md`。文档评论、CI、通用时钟事件和逐委托执行预算仍未接入。
 - [ ] 后台探索保持低打扰；主动通知以可用结果、必要决策或无法继续的问题为主。用户主动查询时可查看状态。
 - [ ] 为后台探索设置可配置的时间、模型和工具使用预算，并提供取消入口。
 

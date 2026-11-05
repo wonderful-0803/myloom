@@ -109,7 +109,7 @@ Worker 完成时用 `orchestrator_report.artifact_file` 明确登记任务目录
 
 `ResultDelivery` 的持久回执与任务完成状态分离：排队、发送中、飞书已发、SMTP 已接收、仅本地、已取消、受阻、结果待核查。后台总暂停时不派发；任务暂停／接管、版本／要求变化、来源撤权或交付授权撤销使旧排队投递失效，交还后不自行重放。已开始的外部请求可能已提交，实际结果保留，不声称撤回。邮件每个异步发送边界再次核验本人、邮箱账号版本、报告及设置授权。跨会话保护依据已登记的源消息链，尚不等同于完整正文级隐私网关。
 
-实现：`src/app/result-delivery.ts`、`src/app/artifacts.ts`、`src/app/feishu-mail.ts`、`loom/src/client/components/DeliveryPanel.tsx`。`tests/result-delivery.spec.ts`、`tests/smtp-mail.spec.ts` 验证真实任务链路和异常控制，外部发送使用替身；真实部署和收件验收另记联调记录。
+实现：`src/app/result-delivery.ts`、`src/app/artifacts.ts`、`src/app/feishu-mail.ts`、`loom/src/client/live/Delivery.tsx`。`tests/result-delivery.spec.ts`、`tests/smtp-mail.spec.ts` 验证真实任务链路和异常控制，外部发送使用替身；真实部署和收件验收另记联调记录。
 
 ## 检查
 
@@ -133,4 +133,4 @@ pnpm check:loom
 
 授权在每个异步 RPC 前后、返回页面前复核；断开或所有者变更后后续查询被拒绝，既有浏览器内容无法远程收回。历史查看入口只保存日期授权，不保存对话正文、索引或 API 凭据；日报委托会按其独立授权保存任务来源快照及报告。接口仍属于本机同源管理范围，不是可公开部署的多用户身份网关，也不是 OS 级隔离。会话原文是外部数据，不能自动成为 Superagent 指令。
 
-实现：src/app/codex-rpc.ts、src/app/codex-history.ts、loom/src/client/components/CodexHistoryPanel.tsx。测试：tests/codex-rpc.spec.ts、tests/codex-history.spec.ts。官方协议参考：[Codex App Server](https://learn.chatgpt.com/docs/app-server)。本轮仅验证只读对话，双向交互、执行委派和 A2A 协作另行设计。
+实现：src/app/codex-rpc.ts、src/app/codex-history.ts、loom/src/client/live/Codex.tsx。测试：tests/codex-rpc.spec.ts、tests/codex-history.spec.ts。官方协议参考：[Codex App Server](https://learn.chatgpt.com/docs/app-server)。本轮仅验证只读对话，双向交互、执行委派和 A2A 协作另行设计。

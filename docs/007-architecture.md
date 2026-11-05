@@ -358,14 +358,13 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/codex-history.ts` | Separate owner/day view grants and bounded recurring-report snapshots; native time filtering, pagination and scope rechecks |
 | `src/codex-delegation.ts` | Bounded Codex report scopes, Shanghai dates and stable scope/day identities |
 | `src/app/codex-daily.ts` | Owner-authorized daily schedule and manual intake, durable deduplication, scoped source snapshots and ordinary Harness task creation |
-| `loom/src/client/LiveApp.tsx`, `loom/src/client/live.css` | The supplied Loom workspace connected to the existing Runtime at `/orchestrator/loom/`; demo code stays separate |
-| `loom/src/client/components/CodexDelegationFields.tsx` | Codex report scope picker, schedule, delivery and explicit recurring-data consent |
-| `loom/src/client/live-sync.ts` | Single-flight, bounded live refresh across focus, route and embedded visibility changes |
-| `loom/src/client/components/DelegationBoard.tsx` | The live standing delegation editor, switches and associated task/deliverable navigation |
-| `loom/src/client/components/AutomationPanel.tsx` | Live base-rule automation mode and rule switches with independent settings revisions |
-| `loom/src/client/components/TaskProgressPanel.tsx` | Owner task activity polling, native action timings and explicit handover/pending-operation states |
-| `loom/src/client/components/DeliveryPanel.tsx` | Default and task-specific report delivery, bound-mailbox opt-in and independent publication receipts |
-| `loom/src/client/components/CodexHistoryPanel.tsx` | Day-authorized local Codex session list, message pagination and revocation; no execution controls |
+| `loom/src/client/LiveApp.tsx`, `loom/src/client/live/live.css` | The live Loom workspace at `/orchestrator/loom/`: top navigation, snapshot polling, theme and the drawers; demo code stays separate and loads as its own chunk |
+| `loom/src/client/live/api.ts`, `loom/src/client/live/context.ts` | Workspace API client, shared labels and task state, and the context every page uses for writes and navigation |
+| `loom/src/client/live/Pages.tsx` | Overview, tasks, deliverables and drafts, message inbox and connection settings |
+| `loom/src/client/live/Details.tsx` | Task drawer (controls, progress, delivery), document drawer (versions, edit, export, draft decisions, report file) and mail confirmation |
+| `loom/src/client/live/Delegations.tsx` | Standing delegations, Codex report scope and consent, base-rule mode and switches with independent revisions |
+| `loom/src/client/live/Progress.tsx`, `loom/src/client/live/Delivery.tsx` | Task activity polling with handover states; default and per-task delivery with mailbox opt-in and receipts |
+| `loom/src/client/live/Codex.tsx` | Day-authorized local Codex session list, message pagination and revocation; no execution controls |
 | `src/app/api.ts` | `Api`, every route with its parameters, query, body and response, and the filters of the lists; it imports only types, so the panel bundles it |
 | `src/app/views/text.ts` | The two forms of a view's text: `preview`, plain text on one line, and `markdown` without HTML; `plain` and `readable` |
 | `src/app/views/records.ts` | The rows the views share: Triggers, Tickets, Threads, Decisions and Channel links, and `ownersOf`, the owners of follow-ups as one request reads them |
