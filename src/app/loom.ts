@@ -20,6 +20,9 @@ import type { Settings } from './settings.ts'
 import type { TaskProgress } from './task-progress.ts'
 import type { ResultDelivery } from './result-delivery.ts'
 import type { CodexHistory } from './codex-history.ts'
+import type { DeviceSync } from '../sync/client.ts'
+import { SyncError } from '../sync/model.ts'
+import { packagePath } from '../infra/paths.ts'
 
 interface Host {
   store: Store; sources: SourceRegistry; artifacts: Artifacts; quietDrafts: QuietDrafts; controls: TaskControls
@@ -28,6 +31,8 @@ interface Host {
   progress: TaskProgress
   resultDelivery: ResultDelivery
   codexHistory: CodexHistory; codexDaily: CodexDaily
+  deviceSync: DeviceSync
+  syncPort(): number
 }
 /** A bounded workspace input, authorization or revision failure, serialized by the loopback HTTP adapter. */
 export class LoomError extends Error { constructor(readonly status: 400 | 404 | 409 | 503, message: string) { super(message) } }
@@ -42,7 +47,7 @@ const mailView = (value: MailProposal): LoomMail => ({ token: value.token, ticke
 /** Projects the authenticated local owner's current Feishu scope and applies existing personal services. */
 export class LoomWorkspace {
   constructor(private readonly host: Host) {}
-  private owner(): string {
+  owner(): string {
     const { sources, store } = this.host, allowed = sources.policyPart('feishu')?.allowed ?? []
     if (!this.host.configured() || store.settings().sources.github?.enabled !== false
       || sources.instance('feishu')?.enabled !== true || !feishuSettings(sources).ownerOnly || allowed.length !== 1) {
@@ -125,6 +130,11 @@ export class LoomWorkspace {
     const owner = this.owner(), { artifacts, quietDrafts, controls, mail, store } = this.host
     if (method === 'GET' && !path.length) return this.snapshot()
     const [kind, subject, operation] = path
+    if (kind === 'sync') {
+      if (subject === 'mcp-config' && path.length === 2 && method === 'GET') return { config: `[mcp_servers.loom_context]\ncommand = ${JSON.stringify(process.execPath)}\nargs = [${JSON.stringify(packagePath('lib', 'sync-mcp.js'))}]\n[mcp_servers.loom_context.env]\nLOOM_SYNC_LOCAL_URL = "http://127.0.0.1:${this.host.syncPort()}/orchestrator/api/loom/sync"\n` }
+      try { return await this.host.deviceSync.handle(owner, method, path.slice(1), method === 'GET' || method === 'DELETE' ? undefined : await body()) }
+      catch (error) { if (error instanceof SyncError || error instanceof z.ZodError) throw error; throw new LoomError(409, '同步服务连接或操作未完成，请核对服务地址和设备授权。') }
+    }
     if (kind === 'codex') {
       try {
         if (subject === 'access' && path.length === 2 && method === 'GET') return this.host.codexHistory.access(owner)

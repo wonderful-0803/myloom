@@ -290,6 +290,15 @@ Some generic modules still refer directly to GitHub or Feishu:
 
 | Path | Responsibility |
 | --- | --- |
+| `src/sync/model.ts` | Bounded conversation/plan schemas, opaque device credentials, safe errors and HTTPS endpoint validation |
+| `src/sync/database.ts` | Separate private SQLite persistence for sync data with durable transactions; no second task runtime |
+| `src/sync/hub.ts` | Device-authenticated spaces, scoped one-time invitations, recovery, revocation, project deletion, immutable conversation batches and plan branches |
+| `src/sync/server.ts` | Standalone loopback-first data service, configured with a protected bootstrap credential file |
+| `src/sync/codex.ts` | Read-only exact-project capture, visible-text filtering, overlapping latest reads and historical pagination backfill |
+| `src/sync/client.ts` | Owner-bound connector, independent collection/AI grants, durable upload receipts, revocation checks and grounded continuation context |
+| `src/sync/mcp.ts` | Read-only MCP stdio adapter using the official SDK, connected only to the local Loom owner API |
+| `src/sync/index.ts` | Embeddable sync service exports for isolated compiled-artifact checks |
+| `loom/src/client/live/DeviceSync.tsx` | Paired device setup, source and AI grants, original discussions, plan lineage and per-instance MCP configuration |
 | `src/index.ts` | The main plugin entry: reads the machine settings, starts the Runtime, and gives it the restart that a save of a Source's account uses |
 | `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment` and `resolveFeishuBot` read the repository and the accounts from the Source settings, each CLI run as Executor shells run it; `SETUP_FIELDS` lists the Source fields setup reads. The code names no person, account or organization |
 | `src/setup.ts` | Setup problems: `SetupError`, with a code, the place that fixes it and the English text the log, the main Session and the panel share |
@@ -427,6 +436,9 @@ Some generic modules still refer directly to GitHub or Feishu:
 
 | Test | Covers |
 | --- | --- |
+| `tests/device-sync.spec.ts` | Real HTTP/persistent two-device round trip with source offline, hub restart, idempotence, project isolation, device revocation, plan branches, AI grants and in-flight withdrawal |
+| `tests/device-sync-api.spec.ts` | Runtime owner routing, disabled defaults, MCP configuration and rejection of unsupported or impersonating requests |
+| `loom/src/client/live/DeviceSync.test.tsx` | Pairing defaults, no unsolicited source reads, explicit collection consent and independent AI access controls |
 | `tests/core-engine.spec.ts` | Domain rules on in-memory repositories: receiving, Eval, fan-out, resume and stop, interrupted Assignments, the pause, Policy changes, reports and outcomes, attaching, replies, failed deliveries and dismissed problems |
 | `tests/stage.spec.ts` | The Ticket stages, row by row |
 | `tests/policy.spec.ts` | Source scope, the gate, the admission table, Mandate revalidation, the Policy version, settings migrations and assessment outcomes |

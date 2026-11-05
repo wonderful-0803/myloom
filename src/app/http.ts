@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { readFile } from 'node:fs/promises'
 import { packagePath } from '../infra/paths.ts'
 import { LoomError, type LoomWorkspace } from './loom.ts'
+import { SyncError } from '../sync/model.ts'
 import { DelegationError } from './delegations.ts'
 import { THREAD_FILTERS, TICKET_FILTERS, type Api, type ApiResponse, type RouteParams } from './api.ts'
 import { sourceSkills } from './context.ts'
@@ -86,6 +87,7 @@ export function sameOrigin(req: Pick<IncomingMessage, 'headers'>, port: number):
 }
 /** Maps errors to HTTP status codes and structured payloads that the panel localizes in the interface language. */
 function failure(error: unknown): [number, Record<string, unknown>] {
+  if (error instanceof SyncError) return [error.status, { error: error.message }]
   if (error instanceof DelegationError) return [error.status, { error: error.message }]
   if (error instanceof SettingsPermissionError) return [400, { error: error.message }]
   if (error instanceof LoomError) return [error.status, { error: error.message }]

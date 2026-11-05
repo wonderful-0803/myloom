@@ -16,6 +16,8 @@ The implementation supports Feishu-only setup, office summaries, exact CSV aggre
 
 ## Setup
 
+Cross-device discussion continuity is available as an explicit single-owner extension: pair devices with a private sync space, authorize projects, and retrieve synced conversations and plan-change reasons through read-only MCP. It does not control remote agents or migrate native session databases. Setup, trust boundaries and isolated evidence: [Device sync](docs/DEVICE_SYNC.md).
+
 The supplied Loom UI is available as a local personal workspace backed by this same Runtime. Build and access instructions: [Loom integration](docs/LOOM_SETUP.md).
 The Linux, macOS and native Windows desktop clients connect to the personal runtime, with an independent window, tray and local connection guide. Windows runs its assistant in native Windows processes and needs no WSL; 0.4.1 fixes returning to edit a failed first-run setup. macOS ZIPs have local signatures; the Windows ZIP is unsigned. Build, verification status and installation: [Loom Desktop](docs/DESKTOP.md).
 Its first-run wizard can also prepare an independent assistant using the existing local engine: model verification, bot credentials, owner/chat scope and explicit startup. It does not import the existing assistant's credentials or history, and checks for duplicate bot listeners. Installing all dependencies on a fresh machine remains separate.

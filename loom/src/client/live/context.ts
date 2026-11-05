@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { LoomDeliverySetting, LoomResultReceipt, LoomSnapshot } from '../../../../src/app/loom-types';
 import { api, enc } from './api';
 
-export type Page = 'overview' | 'tasks' | 'library' | 'inbox' | 'delegations' | 'codex' | 'settings';
+export type Page = 'overview' | 'tasks' | 'library' | 'inbox' | 'delegations' | 'codex' | 'sync' | 'settings';
 export type TaskView = 'all' | 'active' | 'attention' | 'done';
 export type LibraryView = 'reports' | 'drafts';
 export type View = TaskView | LibraryView;

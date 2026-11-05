@@ -12,7 +12,7 @@ function fixture() {
   const requests: any[] = []
   child.stdin.on('data', chunk => { for (const line of String(chunk).trim().split('\n')) requests.push(JSON.parse(line)) })
   const launch = vi.fn(() => child) as unknown as typeof spawn
-  const abort = new AbortController(), client = new CodexReadClient(abort.signal, launch)
+  const abort = new AbortController(), client = new CodexReadClient(abort.signal, launch, ['codex'])
   const respond = (id: unknown, result: unknown) => child.stdout.write(JSON.stringify({ id, result }) + '\n')
   return { child, requests, launch, abort, client, respond }
 }

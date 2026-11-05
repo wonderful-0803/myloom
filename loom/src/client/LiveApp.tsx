@@ -4,6 +4,7 @@ import { startLiveSync } from './live-sync';
 import { api, message, needsYou } from './live/api';
 import { WorkspaceContext, type LibraryView, type Page, type TaskView, type View, type Workspace } from './live/context';
 import { Codex } from './live/Codex';
+import { DeviceSync } from './live/DeviceSync';
 import { Delegations } from './live/Delegations';
 import { DocSheet, MailSheet, TaskSheet, type MailResult } from './live/Details';
 import { Inbox, Library, Overview, Settings, Tasks } from './live/Pages';
@@ -17,6 +18,7 @@ const pages: { id: Page; label: string; title: string; note: string }[] = [
   { id: 'inbox', label: '消息', title: '消息', note: '收到的本人消息和处理决定' },
   { id: 'delegations', label: '委托', title: '委托与自主处理', note: '交代一次，在授权范围内持续关注' },
   { id: 'codex', label: 'Codex', title: 'Codex 历史', note: '按日期查看本机 Codex 对话' },
+  { id: 'sync', label: '跨设备', title: '跨设备接续', note: '让授权项目的讨论与依据跟随你' },
   { id: 'settings', label: '设置', title: '连接与交付', note: '复用本机飞书、模型与邮箱配置' },
 ];
 /** Old hash names keep working for existing bookmarks. */
@@ -131,6 +133,7 @@ export function LiveApp() {
           {page === 'inbox' && <Inbox />}
           {page === 'delegations' && <Delegations />}
           {page === 'codex' && <Codex />}
+          {page === 'sync' && <DeviceSync />}
           {page === 'settings' && <Settings />}
           {task && (() => { const value = workspace.data.tasks.find(t => t.id === task); return value ? <TaskSheet task={value} onClose={() => setTask(null)} /> : null; })()}
           {doc && <DocSheet subject={doc.subject} version={doc.version} onClose={() => setDoc(null)} onMail={result => { setDoc(null); setMail(result); }} />}

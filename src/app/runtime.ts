@@ -41,6 +41,8 @@ import { TaskProgress } from './task-progress.ts'
 import { ResultDelivery } from './result-delivery.ts'
 import { CodexDaily } from './codex-daily.ts'
 import { CodexHistory } from './codex-history.ts'
+import { DeviceSync } from '../sync/client.ts'
+import { SyncDatabase } from '../sync/database.ts'
 import { FeishuAssistant } from './feishu-assistant.ts'
 import { Artifacts } from './artifacts.ts'
 import { LoomWorkspace } from './loom.ts'
@@ -83,6 +85,7 @@ export class Runtime extends Service implements SourceHost {
   readonly resultDelivery: ResultDelivery
   readonly codexHistory: CodexHistory
   readonly codexDaily: CodexDaily
+  readonly deviceSync: DeviceSync
   readonly feishuAssistant: FeishuAssistant
   readonly artifacts: Artifacts
   readonly quietDrafts: QuietDrafts
@@ -208,13 +211,16 @@ export class Runtime extends Service implements SourceHost {
         } })
       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.
       const evals = board.claim('evals', { state: 'ready', detail: 'No unavailable Eval in the last hour' })
-      const evaluateDue = () => { this.codexDaily?.tick(); engine.evaluateDue(); evals.set(evalsHealth(store)) }
+      const evaluateDue = () => { this.codexDaily?.tick(); this.deviceSync?.tick(); engine.evaluateDue(); evals.set(evalsHealth(store)) }
       const passes = this.passes = new Passes({ engine: { receive: trigger => engine.receive(trigger), evaluateDue }, effects,
         health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
       this.feishuAssistant = new FeishuAssistant({ store, controls, sources, effects, commands, artifacts, quietDrafts, stateDir: machine.stateDir, configured: () => setup.configured() })
       this.resultDelivery = new ResultDelivery({ store, sources, controls, artifacts, effects, commands, mail: this.feishuAssistant.mail,
         stateDir: machine.stateDir, paused: () => this.paused() })
       this.codexHistory = new CodexHistory({ store, lifetime: this.lifetime })
+      const syncData = new SyncDatabase(join(machine.stateDir, 'device-sync', 'local.sqlite'))
+      this.deviceSync = new DeviceSync(syncData, { owner: () => this.loom.owner(), paused: () => this.paused(), lifetime: this.lifetime })
+      this.disposers.push(() => syncData.close())
       this.codexDaily = new CodexDaily({ store, sources, effects, history: this.codexHistory, engine, lifetime: this.lifetime, configured: () => setup.configured(), paused: () => this.paused() })
       this.delegations = new Delegations({ store, sources, settings: this.settings, codexDaily: this.codexDaily })
       this.progress = new TaskProgress({ store, controls, inspect: async (id, signal) => {
@@ -222,8 +228,8 @@ export class Runtime extends Service implements SourceHost {
         return history.events.slice(history.inheritedEventCount ?? 0)
       } })
       this.loom = new LoomWorkspace({ store, controls, sources, artifacts, quietDrafts, mail: this.feishuAssistant.mail,
-        delegations: this.delegations, settings: this.settings, progress: this.progress, resultDelivery: this.resultDelivery, codexHistory: this.codexHistory, codexDaily: this.codexDaily,
-        health: () => this.health, configured: () => setup.configured(), deployment: () => setup.deployment })
+        delegations: this.delegations, settings: this.settings, progress: this.progress, resultDelivery: this.resultDelivery, codexHistory: this.codexHistory, codexDaily: this.codexDaily, deviceSync: this.deviceSync,
+        health: () => this.health, configured: () => setup.configured(), deployment: () => setup.deployment, syncPort: () => ctx.webServer.port })
       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },
         get deployment() { return setup.deployment }, configured: () => setup.configured(),
         get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => this.receive(trigger),
@@ -235,6 +241,7 @@ export class Runtime extends Service implements SourceHost {
       this.ready = this.initialize()
     } catch (error) {
       // Release the database and state lock if initialization fails so an in-process restart can reacquire them.
+      for (const dispose of this.disposers.reverse()) dispose()
       try { opened?.close() } finally { release() }
       throw error
     }
@@ -302,6 +309,7 @@ export class Runtime extends Service implements SourceHost {
   stop(): Promise<void> { return this.stopping ??= this.shutdown() }
   private async shutdown(): Promise<void> {
     this.closingFlag = true; const passes = this.passes.stop(); this.stopped.abort()
+    await this.deviceSync?.idle()
     try {
       this.assessor.stop()
       const ids = [this.masterId, ...this.store.tickets.list().map(ticket => workerSessionId(ticket.id))]

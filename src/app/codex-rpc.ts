@@ -1,5 +1,18 @@
 /** Minimal read-only Codex App Server transport. Never starts, resumes, steers or subscribes to a thread. */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { statSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
+
+/** Resolve native executables or npm's JS entry on Windows without invoking a shell or interpolating arguments. */
+export function codexReadCommand(platform:NodeJS.Platform=process.platform,path=process.env.PATH??''):string[] {
+  if(platform!=='win32')return ['codex']
+  for(const dir of path.split(';').filter(p=>isAbsolute(p))) {
+    for(const [file,command] of [[join(dir,'codex.exe'),[join(dir,'codex.exe')]], [join(dir,'node_modules','@openai','codex','bin','codex.js'),[process.execPath,join(dir,'node_modules','@openai','codex','bin','codex.js')]]] as [string,string[]][]) {
+      try{if(statSync(file).isFile())return command}catch{/* not this installation */}
+    }
+  }
+  throw new Error('未找到可直接启动的 Codex CLI，请安装 CLI 并核对 PATH。')
+}
 
 export type CodexReadMethod = 'thread/list' | 'thread/read' | 'thread/items/list'
 export interface CodexReader { call(method: CodexReadMethod, params: Record<string, unknown>): Promise<unknown> }
@@ -14,9 +27,9 @@ export class CodexReadClient implements CodexReader {
   private bytes = 0
   private closed = false
   private readonly timer: ReturnType<typeof setTimeout>
-  constructor(private readonly signal: AbortSignal, launch: typeof spawn = spawn) {
+  constructor(private readonly signal: AbortSignal, launch: typeof spawn = spawn, command: readonly string[] = codexReadCommand()) {
     signal.throwIfAborted()
-    this.child = launch('codex', ['app-server', '--listen', 'stdio://', '-c', 'analytics.enabled=false'], { stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams
+    this.child = launch(command[0]!, [...command.slice(1), 'app-server', '--listen', 'stdio://', '-c', 'analytics.enabled=false'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams
     this.child.stdout.setEncoding('utf8')
     this.child.stdout.on('data', (chunk: string) => {
       this.bytes += Buffer.byteLength(chunk)
