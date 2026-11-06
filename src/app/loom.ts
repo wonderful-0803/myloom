@@ -21,6 +21,7 @@ import type { TaskProgress } from './task-progress.ts'
 import type { ResultDelivery } from './result-delivery.ts'
 import type { CodexHistory } from './codex-history.ts'
 import type { DeviceSync } from '../sync/client.ts'
+import type { FeishuSync } from '../sync/feishu.ts'
 import { SyncError } from '../sync/model.ts'
 import { packagePath } from '../infra/paths.ts'
 
@@ -32,6 +33,7 @@ interface Host {
   resultDelivery: ResultDelivery
   codexHistory: CodexHistory; codexDaily: CodexDaily
   deviceSync: DeviceSync
+  feishuSync: FeishuSync
   syncPort(): number
 }
 /** A bounded workspace input, authorization or revision failure, serialized by the loopback HTTP adapter. */
@@ -131,8 +133,9 @@ export class LoomWorkspace {
     if (method === 'GET' && !path.length) return this.snapshot()
     const [kind, subject, operation] = path
     if (kind === 'sync') {
-      if (subject === 'mcp-config' && path.length === 2 && method === 'GET') return { config: `[mcp_servers.loom_context]\ncommand = ${JSON.stringify(process.execPath)}\nargs = [${JSON.stringify(packagePath('lib', 'sync-mcp.js'))}]\n[mcp_servers.loom_context.env]\nLOOM_SYNC_LOCAL_URL = "http://127.0.0.1:${this.host.syncPort()}/orchestrator/api/loom/sync"\n` }
-      try { return await this.host.deviceSync.handle(owner, method, path.slice(1), method === 'GET' || method === 'DELETE' ? undefined : await body()) }
+      const cloud = subject === 'feishu', segments = path.slice(cloud ? 2 : 1)
+      if (segments[0] === 'mcp-config' && segments.length === 1 && method === 'GET') return { config: `[mcp_servers.loom_context]\ncommand = ${JSON.stringify(process.execPath)}\nargs = [${JSON.stringify(packagePath('lib', 'sync-mcp.js'))}]\n[mcp_servers.loom_context.env]\nLOOM_SYNC_LOCAL_URL = "http://127.0.0.1:${this.host.syncPort()}/orchestrator/api/loom/sync${cloud ? '/feishu' : ''}"\n` }
+      try { return await (cloud ? this.host.feishuSync : this.host.deviceSync).handle(owner, method, segments, method === 'GET' || method === 'DELETE' ? undefined : await body()) }
       catch (error) { if (error instanceof SyncError || error instanceof z.ZodError) throw error; throw new LoomError(409, '同步服务连接或操作未完成，请核对服务地址和设备授权。') }
     }
     if (kind === 'codex') {

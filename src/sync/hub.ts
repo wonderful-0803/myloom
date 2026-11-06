@@ -12,6 +12,11 @@ const equal = (a: string,b: string) => timingSafeEqual(Buffer.from(hash(a)),Buff
 /** Authenticates each device and persists isolated spaces, scoped projects and immutable revisions. */
 export class SyncHub {
   constructor(readonly data: SyncDatabase, private readonly bootstrap: string) { if (bootstrap.length<32) throw new Error('同步服务初始化凭据至少需要 32 个字符。') }
+  /** Used only after the cloud adapter verifies the same Feishu owner; never exposed by the HTTP hub. */
+  enrollOwner(space:string,label:string) {
+    if(!this.data.get<Space>(`space:${id.parse(space)}`))throw new SyncError(404,'同步空间不存在。')
+    return this.data.atomic(()=>this.device(space,name.parse(label),true,[]))
+  }
   private device(space: string, label: string, admin: boolean, projects: string[]) {
     const device: Device={id:randomUUID(),name:label,admin,projects,revoked:false,at:stamp()}, token=secret()
     this.data.set(`device:${space}:${device.id}`,device); this.data.set(`auth:${hash(token)}`,{space,device:device.id})

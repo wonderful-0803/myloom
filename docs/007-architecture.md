@@ -298,7 +298,12 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sync/client.ts` | Owner-bound connector, independent collection/AI grants, durable upload receipts, revocation checks and grounded continuation context |
 | `src/sync/mcp.ts` | Read-only MCP stdio adapter using the official SDK, connected only to the local Loom owner API |
 | `src/sync/index.ts` | Embeddable sync service exports for isolated compiled-artifact checks |
-| `loom/src/client/live/DeviceSync.tsx` | Paired device setup, source and AI grants, original discussions, plan lineage and per-instance MCP configuration |
+| `src/sync/feishu-drive.ts` | Fixed user-identity CLI authorization and Drive operations with private transfers, bounded files and safe errors |
+| `src/sync/feishu-cloud.ts` | Owner-bound private Drive log, immutable batch hashes, reconstruction, receipts, revocation and project cleanup |
+| `src/sync/feishu.ts` | Independent Feishu connector lifecycle and private device-code authorization; reuses project/AI grants and capture |
+| `scripts/sync-local.mjs` | Linux loopback hub bootstrap with private credentials and state; operator steps in `docs/DEVICE_SYNC_LINUX_ACCEPTANCE.md` |
+| `scripts/smoke-sync-local.mjs` | Actual Linux hub startup, permissions, persistent restart and symlink rejection using disposable data |
+| `loom/src/client/live/DeviceSync.tsx` | Default Feishu login/QR, directory consent, project grants and cloud MCP; self-hosted controls remain under collapsed Advanced settings marked pending verification |
 | `src/index.ts` | The main plugin entry: reads the machine settings, starts the Runtime, and gives it the restart that a save of a Source's account uses |
 | `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment` and `resolveFeishuBot` read the repository and the accounts from the Source settings, each CLI run as Executor shells run it; `SETUP_FIELDS` lists the Source fields setup reads. The code names no person, account or organization |
 | `src/setup.ts` | Setup problems: `SetupError`, with a code, the place that fixes it and the English text the log, the main Session and the panel share |
@@ -438,6 +443,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | --- | --- |
 | `tests/device-sync.spec.ts` | Real HTTP/persistent two-device round trip with source offline, hub restart, idempotence, project isolation, device revocation, plan branches, AI grants and in-flight withdrawal |
 | `tests/device-sync-api.spec.ts` | Runtime owner routing, disabled defaults, MCP configuration and rejection of unsupported or impersonating requests |
+| `tests/feishu-sync.spec.ts` | Two synthetic Drive connectors with persisted stores, offline source, plan continuity, retry receipts, identity and revocation checks |
+| `tests/feishu-drive.spec.ts` | Actual CLI adapter command contracts, user-only envelopes, private relative file transfers and authorization host checks |
 | `loom/src/client/live/DeviceSync.test.tsx` | Pairing defaults, no unsolicited source reads, explicit collection consent and independent AI access controls |
 | `tests/core-engine.spec.ts` | Domain rules on in-memory repositories: receiving, Eval, fan-out, resume and stop, interrupted Assignments, the pause, Policy changes, reports and outcomes, attaching, replies, failed deliveries and dismissed problems |
 | `tests/stage.spec.ts` | The Ticket stages, row by row |

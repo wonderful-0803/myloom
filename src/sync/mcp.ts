@@ -2,8 +2,8 @@
 import { McpServer } from '@modelcontextprotocol/server'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import { z } from 'zod'
-const url=new URL(process.env.LOOM_SYNC_LOCAL_URL??'http://127.0.0.1:13364/orchestrator/api/loom/sync')
-if(url.protocol!=='http:'||!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||url.username||url.password||url.search||url.hash||url.pathname!=='/orchestrator/api/loom/sync')throw new Error('MCP 仅连接本机 Loom 同步入口。')
+const url=new URL(process.env.LOOM_SYNC_LOCAL_URL??'http://127.0.0.1:13364/orchestrator/api/loom/sync/feishu')
+if(url.protocol!=='http:'||!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||url.username||url.password||url.search||url.hash||!['/orchestrator/api/loom/sync','/orchestrator/api/loom/sync/feishu'].includes(url.pathname))throw new Error('MCP 仅连接本机 Loom 同步入口。')
 const read=async(path:string)=>{
   try {
     const response=await fetch(url.href+path,{redirect:'error',signal:AbortSignal.timeout(30_000),headers:{'x-orchestrator-request':'1'}})

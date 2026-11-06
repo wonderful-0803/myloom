@@ -4,8 +4,9 @@ import { SyncDatabase } from './database.ts'
 import { captureCodex, type CaptureState, type ReadCodex } from './codex.ts'
 import { hash, id, name, Snapshot, syncUrl, SyncError, type Device, type Project, type Revision, type SyncNote } from './model.ts'
 interface Connection { owner:string;url:string;space:string;device:Device;token:string;enabled:boolean;revision:number;readProjects:string[];lastError?:string }
-interface Mapping { project:string;cwd:string;enabled:boolean;revision:number;cursor:CaptureState;lastSuccess?:string;lastError?:string;warnings:string[] }
-interface Host { owner():string;paused():boolean;lifetime:AbortSignal;read?:ReadCodex }
+interface Mapping { project:string;cwd:string;enabled:boolean;revision:number;cursor:CaptureState;lastSuccess?:string;lastChecked?:string;lastRun?:{sessions:number;messages:number};lastError?:string;warnings:string[] }
+export interface SyncTransport { request(url:string,route:string,method:string,body:unknown,token:string,signal:AbortSignal):Promise<any> }
+interface Host { owner():string;paused():boolean;lifetime:AbortSignal;read?:ReadCodex;transport?:SyncTransport }
 const connectionKey=(owner:string)=>`connection:${hash(owner)}`
 const mappingKey=(owner:string,project:string)=>`mapping:${hash(owner)}:${project}`
 /** Owner-bound device connector. Source collection and AI access have independent, revocable grants. */
@@ -18,6 +19,7 @@ export class DeviceSync {
   private check(owner:string,c?:Connection) {this.host.lifetime.throwIfAborted();if(this.host.owner()!==owner)throw new SyncError(403,'本机所有者授权已变化。');if(c){const now=this.connection(owner);if(now.revision!==c.revision||now.token!==c.token)throw new SyncError(409,'设备连接或同步授权已变化。')}}
   private async request(url:string,route:string,method='GET',body?:unknown,token='',signal?:AbortSignal):Promise<any> {
     const requestSignal=AbortSignal.any([this.host.lifetime,AbortSignal.timeout(30_000),...(signal?[signal]:[])])
+    if(this.host.transport)return this.host.transport.request(url,route,method,body,token,requestSignal)
     const options:RequestInit={method,redirect:'error',signal:requestSignal,headers:{authorization:`Bearer ${token}`,...(body===undefined?{}:{'content-type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})}
     let response:Response
     try{response=await fetch(syncUrl(url)+route,options)}catch(error){if(method!=='GET'||requestSignal.aborted)throw error;response=await fetch(syncUrl(url)+route,options)}
@@ -110,7 +112,10 @@ export class DeviceSync {
             if(receipt.batchHash!==hash(JSON.stringify(Snapshot.parse(snapshot))))throw new SyncError(409,'服务端回执与上传批次不一致，检查点未前进。')
             check()
           }
-          check();const {lastError:_oldError,...rest}=mapping;this.data.set(mappingKey(owner,mapping.project),{...rest,cursor:result.state,lastSuccess:new Date().toISOString(),warnings:result.warnings})
+          check();const {lastError:_oldError,...rest}=mapping,at=new Date().toISOString()
+          const sessions=new Set(result.snapshots.map(s=>s.session)).size,messages=result.snapshots.reduce((total,s)=>total+s.messages.length,0)
+          this.data.set(mappingKey(owner,mapping.project),{...rest,cursor:result.state,lastChecked:at,lastRun:{sessions,messages},
+            ...(result.snapshots.length?{lastSuccess:at}:{}),warnings:result.snapshots.length?result.warnings:[...result.warnings,'未找到此精确路径对应的 Codex 会话，本轮没有上传记录。请核对项目路径和会话来源。']})
         }catch(error){const now=this.data.get<Mapping>(mappingKey(owner,mapping.project));if(now?.revision===mapping.revision){this.data.set(mappingKey(owner,mapping.project),{...now,lastError:error instanceof SyncError?error.message:'读取或上传未完成；已确认的历史保留，稍后重试。'})}if(controller.signal.aborted)throw error}
       }
     }

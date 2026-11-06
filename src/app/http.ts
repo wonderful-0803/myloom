@@ -285,6 +285,9 @@ export function registerHttp(ctx: Context, runtime: HttpHost): () => void {
         if (segments[0] === 'loom') {
           if (!runtime.loom) throw new RouteError(404, 'Loom workspace is not installed')
           const path = segments.slice(1).filter(Boolean).map(decoded)
+          if (path[0] === 'sync' && ['forwarded', 'x-forwarded-for', 'x-forwarded-host'].some(name => req.headers[name] !== undefined)) {
+            throw new SyncError(403, '同步授权与讨论记录仅允许本机直接访问，不通过展示代理提供。')
+          }
           json(res, 200, await runtime.loom.handle(req.method ?? 'GET', path, Object.fromEntries(url.searchParams), () => readBody(req))); return
         }
         const route = match(table, req.method ?? 'GET', url.pathname.slice('/orchestrator/api/'.length).split('/'))

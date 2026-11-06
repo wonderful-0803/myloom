@@ -46,10 +46,13 @@
     "manifestVersion": 1
   },
   "scripts": {
+    "sync:local": "node scripts/sync-local.mjs",
     "sync:server": "node lib/sync-server.js",
     "sync:mcp": "node lib/sync-mcp.js",
     "sync:smoke": "node scripts/smoke-sync.mjs",
+    "sync:smoke:local": "node scripts/smoke-sync-local.mjs",
     "sync:smoke:codex": "node scripts/smoke-codex-reader.mjs",
+    "sync:smoke:feishu": "node scripts/smoke-feishu-sync.mjs",
     "desktop:start": "pnpm --dir desktop start",
     "desktop:test": "pnpm --dir desktop test",
     "desktop:build": "pnpm --dir desktop build",

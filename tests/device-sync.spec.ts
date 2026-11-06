@@ -24,9 +24,9 @@ function native(cwd:string,id:string,text:string):ReadCodex {
     expect(method).toBe('thread/items/list');return {data:[entry('u-'+id,text),entry('a-'+id,'这是一条候选建议，需要用户判断。','agentMessage'),entry('tool','不应同步的工具内容','commandExecution'),entry('env','<environment_context>private</environment_context>')],nextCursor:null}
   }})
 }
-function local(label:string,read:ReadCodex) {
+function local(label:string,read:ReadCodex,paused:()=>boolean=()=>false) {
   const data=new SyncDatabase(join(dir,label+'.sqlite')),controller=new AbortController();stores.push(data);controllers.push(controller)
-  return {data,controller,client:new DeviceSync(data,{owner:()=>owner,paused:()=>false,lifetime:controller.signal,read})}
+  return {data,controller,client:new DeviceSync(data,{owner:()=>owner,paused,lifetime:controller.signal,read})}
 }
 async function start(port=0) {db=new SyncDatabase(join(dir,'hub.sqlite'));hub=new SyncHub(db,bootstrap);server=syncServer(hub);await new Promise<void>(r=>server.listen(port,'127.0.0.1',r));url=`http://127.0.0.1:${(server.address() as {port:number}).port}`}
 async function stopHub() {server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));db.close()}
@@ -173,4 +173,74 @@ it('filters hidden/tool/environment items and incrementally backfills older visi
   const third=await captureCodex('/p',second.state,()=>{},controller.signal,read)
   const messages=[...first.snapshots,...second.snapshots,...third.snapshots].flatMap(s=>s.messages)
   expect(new Set(messages.map(m=>m.id)).size).toBe(6);expect(third.state[sessionA]?.pending).toHaveLength(0);expect(seenCalls).toBe(8)
+})
+
+it('reports an empty project scan without inventing an upload receipt or losing older confirmed history',async()=>{
+  let available=false
+  const reader=native('/a',sessionA,'已经确认的历史')
+  const a=local('empty',async(signal,run)=>available?reader(signal,run):run({call:async()=>({data:[],nextCursor:null})}))
+  await create(a.client);const p=await a.client.handle(owner,'POST',['projects'],{name:'精确目录'}) as Project
+  await grant(a.client,p.id,'/a');await a.client.run(owner)
+  expect(a.client.status(owner).mappings[0]).toMatchObject({lastChecked:expect.any(String),lastRun:{sessions:0,messages:0},warnings:[expect.stringContaining('本轮没有上传记录')]})
+  expect(a.client.status(owner).mappings[0]?.lastSuccess).toBeUndefined()
+  expect((await view(a.client,p.id)).sessions).toHaveLength(0)
+  available=true;await a.client.run(owner)
+  const confirmed=a.client.status(owner).mappings[0]!.lastSuccess
+  expect(confirmed).toBeTruthy()
+  available=false;await a.client.run(owner)
+  expect(a.client.status(owner).mappings[0]).toMatchObject({lastSuccess:confirmed,lastRun:{sessions:0,messages:0}})
+  expect((await view(a.client,p.id)).sessions).toHaveLength(1)
+})
+
+it('blocks new and in-flight collection during global pause and resumes only after the pause is lifted',async()=>{
+  let paused=true,calls=0
+  const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>(),reader=native('/a',sessionA,'暂停验收')
+  const a=local('pause',async(signal,run)=>{calls++;entered.resolve();await release.promise;return reader(signal,run)},()=>paused)
+  await create(a.client);const p=await a.client.handle(owner,'POST',['projects'],{name:'P'}) as Project;await grant(a.client,p.id,'/a')
+  a.client.tick();await a.client.idle();expect(calls).toBe(0)
+  await expect(a.client.run(owner)).rejects.toMatchObject({status:409})
+  paused=false;const running=a.client.run(owner);await entered.promise
+  paused=true;release.resolve();await running
+  expect((await view(a.client,p.id)).sessions).toHaveLength(0)
+  expect(a.client.status(owner).mappings[0]?.lastSuccess).toBeUndefined()
+  paused=false;await a.client.run(owner)
+  expect((await view(a.client,p.id)).sessions).toHaveLength(1)
+})
+
+it('retries a partially committed multi-session upload without advancing failed checkpoints or duplicating history',async()=>{
+  const a=local('partial',async(_signal,run)=>run({call:async(method,params)=>{
+    if(method==='thread/list')return {data:params.archived?[]:[sessionA,sessionB].map(id=>({id,name:'分批验收',cwd:'/a',source:'cli'})),nextCursor:null}
+    if(method==='thread/read')return {thread:{id:params.threadId,cwd:'/a',source:'cli'}}
+    return {data:[entry('m-'+params.threadId,'讨论记录')],nextCursor:null}
+  }}))
+  await create(a.client);const p=await a.client.handle(owner,'POST',['projects'],{name:'P'}) as Project;await grant(a.client,p.id,'/a')
+  let uploads=0;const original=globalThis.fetch
+  const spy=vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
+    if(init?.method==='POST'&&String(input).endsWith('/sessions')&&++uploads===2)throw new Error('simulated lost connection')
+    return original(input,init)
+  })
+  await a.client.run(owner);spy.mockRestore()
+  expect(a.client.status(owner).mappings[0]?.lastSuccess).toBeUndefined()
+  const committed=(await view(a.client,p.id)).sessions
+  expect(committed).toHaveLength(1)
+  const before=a.data.list<{cursor:unknown}>('mapping:')[0]!.cursor
+  expect(before).toEqual({})
+  await a.client.run(owner)
+  const retried=(await view(a.client,p.id)).sessions
+  expect(retried).toHaveLength(2)
+  expect(retried.find((s:{session:string})=>s.session===committed[0].session).id).toBe(committed[0].id)
+  expect(a.client.status(owner).mappings[0]).toMatchObject({lastSuccess:expect.any(String),lastRun:{sessions:2,messages:2}})
+})
+
+it('turns off collection and AI access after the server revokes this device',async()=>{
+  const a=local('admin',native('/a',sessionA,'A'));await create(a.client)
+  const p=await a.client.handle(owner,'POST',['projects'],{name:'P'}) as Project
+  const invite=await a.client.handle(owner,'POST',['invitations'],{projects:[p.id]}) as {invitation:string}
+  const b=local('revoked',native('/b',sessionB,'B'))
+  await b.client.handle(owner,'POST',['connect'],{url,mode:'join',deviceName:'B',invitation:invite.invitation})
+  await grant(b.client,p.id,'/b');await b.client.handle(owner,'PUT',['projects',p.id,'ai'],{enabled:true,consent:true})
+  await a.client.handle(owner,'DELETE',['devices',b.client.status(owner).device!.id])
+  await expect(b.client.run(owner)).rejects.toMatchObject({status:401})
+  expect(b.client.status(owner)).toMatchObject({enabled:false,readProjects:[],running:false,device:{revoked:true}})
+  await expect(context(b.client,p.id)).rejects.toMatchObject({status:403})
 })
