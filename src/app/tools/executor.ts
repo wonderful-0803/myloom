@@ -97,6 +97,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
         question_for_trigger_id: z.string().optional().describe('With human_action: ask where this human message was written.'),
         pr_number: z.number().int().positive().nullish().describe('Only when GitHub is configured: the source PR, or an agent-owned PR from this ticket branch (DSH_SUPERAGENT_NAME). Omit for office work.'),
         reply_to_trigger_id: z.string().optional().describe('Human question answered; not for ordinary progress.'),
+        milestone: z.boolean().optional().describe('Progress only: one item\'s outcome a person can act on, posted once.'),
       }).strict(),
       execute: async (args, signal) => {
         const current = host.store.tickets.get(ticketId)
@@ -115,9 +116,10 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
           if (args.state === 'ready' || args.state === 'progress') host.artifacts?.checkReport(current, args.artifact_version)
           const report = { state: args.state, summary: args.summary, ...(args.human_action !== undefined ? { question: args.human_action } : {}),
             ...(args.question_for_trigger_id ? { askedBy: args.question_for_trigger_id } : {}),
-            ...(args.reply_to_trigger_id ? { answers: args.reply_to_trigger_id } : {}) }
+            ...(args.reply_to_trigger_id ? { answers: args.reply_to_trigger_id } : {}), ...(args.milestone ? { milestone: true } : {}) }
           const updated = host.engine.report(ticketId, report)
-          if (args.state === 'ready' || args.state === 'progress') {
+          // A milestone is a notice about one item, not a new version of the ticket's report.
+          if (args.state === 'ready' || (args.state === 'progress' && !args.milestone)) {
             const artifact = host.artifacts?.report(updated, file?.body ?? args.summary, args.artifact_version, file?.filename ?? (codex ? `codex-daily-${String((host.resources.store.triggers.get(ticket.origin.triggerId)?.meta.date) ?? 'report')}.md` : undefined))
             if (artifact && args.state === 'ready') host.resultDelivery?.enqueue(updated, artifact)
           }

@@ -57,7 +57,7 @@ Each part extends `EnginePart` (`src/core/part.ts`), which provides options and 
 | `Evals` | The Evals of Threads: batching, the gate's strength, actor and basis with the Trigger that gave them (`primary`), the deadline from the candidate's delivery and its shift by a pause, the requeue of an expired Eval, candidates, replays and hand-backs, the requeue on a Policy change, and the Decision each ends with: accept, stop, ignore or unavailable | Tickets |
 | `Tickets` | The Ticket lifecycle: creation from an accept with its Mandate, Subscriptions and first Assignment, the Threads it follows and their closes (`followsDone`), attached Threads and Threads followed for context, Inputs and notes, resume and the messages a resume refuses, retry, restart, stop and end, the Subscriptions it drops, and the notice of a Policy change to the Tickets it bears on | Replies |
 | `Assignments` | What the Executor and its workers report: an Assignment started, Inputs reached it or failed to, a restart interrupted it, and a worker's Report with its question for a person | Tickets, Replies |
-| `Replies` | Channel writes through the `Outbox`: the acknowledgement, the answer, the result and the attention message, each by the rule that allows it | Nothing |
+| `Replies` | Channel writes through the `Outbox`: the acknowledgement, the answer, the result, the attention message and the milestone, each by the rule that allows it | Nothing |
 
 Commands use imperative names such as `stopTicket`; facts reported by adapters use past-tense names such as `assignmentStarted`. The query `candidate` uses a noun.
 
@@ -74,7 +74,7 @@ Callers receive only their role's `Pick` of the Engine: `EngineForSources`, `Eng
 | Main Session | `attach(ticketId, triggerId, note?)` | Routes a Trigger to a Ticket it points at, whose Executor then decides it as a follow-up, and ends the Eval that holds it, whose other Triggers wait for a fresh Eval; an ended Ticket resumes under its Mandate at once unless processing is paused. A follow-up an Executor still decides is refused, as is one routed back to the Ticket that handed it back |
 | Main Session | `requestStatus(ticketId)` | Asks a waiting Executor Session for its status, and answers whether it asked |
 | Main Session | `note(ticketId, text)` | Gives a Ticket's Executor a fact from other work as a text Input, which grants nothing |
-| Main Session, Executor | `reply(request)` | Queues a message for the Channel its purpose names: `acknowledgement`, `answer`, `result` or `attention` |
+| Main Session, Executor | `reply(request)` | Queues a message for the Channel its purpose names: `acknowledgement`, `answer`, `result`, `attention` or `milestone` (once per milestone report of a live ticket) |
 | People | `stopTicket(ticketId, reason?)` | A person's stop, which withdraws the Mandate |
 | People | `retryTicket(ticketId)` | Ends the stalled Assignment of a Ticket that waits for a person after a `failed` or `blocked` Report, or whose Input delivery failed (`canRetry`), and starts a new one |
 | People | `reevaluate(triggerId)` | Queues a stored Trigger for a fresh Eval |
@@ -473,6 +473,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/task-progress.spec.ts` | Read-only native activity and timings, reasoning/log suppression, retry blockers, drained handover, return causes and revocation during inspection |
 | `tests/result-delivery.spec.ts` | Real completion-to-file publication, immutable text snapshots, source boundaries, preference revisions, task overrides, unknown results and standing mailbox revocation |
 | `tests/codex-history.spec.ts` | Day/owner opt-in, archived and older sessions, Shanghai boundaries, context/tool/reasoning suppression, pagination and asynchronous withdrawal |
+| `tests/autodebug.spec.ts` | The BugFixer bridge reports a round's start, each bug outcome and its end once, never replays an earlier round and refuses to start a stopped one |
 | `tests/codex-daily.spec.ts` | Recurring grants, ordinary task/report flow, manual-clock deduplication, schedule semantics, bounded retries, revocation and private delivery |
 | `tests/codex-rpc.spec.ts` | Read-only stdio framing, initialization, denied execution/approval calls, output limits, timeout, cancellation and sanitized diagnostics |
 | `tests/feishu-cards.spec.ts` | Native callback ingress, real-operator/card/grant binding, stale controls, deduplication, edit forms and escaped content |

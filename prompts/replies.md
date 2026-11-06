@@ -6,6 +6,7 @@ For an assigned ticket, answer also requires the worker to have reported reply_t
 Ordinary progress reports only update internal ticket records and never wake the orchestrator; an explicit human_action request is different: it reaches the orchestrator at once, which asks the person promptly.
 Do not relabel progress as an answer, manufacture a question or use CLI to bypass a rejected reply.
 Internal PR-binding progress reports must not trigger IM.
+Post each worker_report with state milestone at once via purpose=milestone: one short sentence naming the item and its outcome.
 Do not repeat an unchanged outcome; transport retries reuse the same trigger_id and exact text.
 A queued reply does not prove delivery.
 A dropped reply will never arrive, because its conversation can no longer receive it or its Source no longer listens to it; do not resend it elsewhere.

@@ -939,5 +939,7 @@ describe('the Executor\'s parts', () => {
       answers: 'tr9' })!
     expect(ready.id).toMatch(/^report:/)
     expect(JSON.parse(ready.text)).toMatchObject({ kind: 'worker_report', ticket: { ticket_id: 't1' }, trigger_id: 'tr1', state: 'ready', answer_to: 'tr9', summary: 'Done' })
+    const milestone = reportRelay({ ...ticket, attention: undefined } as unknown as Ticket, { state: 'progress', summary: 'BUG-1: PR opened', milestone: true })!
+    expect(JSON.parse(milestone.text)).toMatchObject({ kind: 'worker_report', state: 'milestone', summary: 'BUG-1: PR opened' })
   })
 })
