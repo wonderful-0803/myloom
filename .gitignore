@@ -10,3 +10,4 @@ desktop/assets/*.png
 desktop/assets/*.icns
 desktop/assets/*.ico
 loom-sync-data/
+__pycache__/

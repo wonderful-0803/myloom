@@ -222,7 +222,8 @@ export interface Assignment {
   startedAt?: string
   endedAt?: string
   endedReason?: string
-  report?: { state: ReportState; summary: string; at: string }
+  /** The latest report; `milestone` marks a progress report that names one itemized outcome a person can act on now. */
+  report?: { state: ReportState; summary: string; at: string; milestone?: true }
   /** When Inputs last reached the worker; one at or after `report.at` means the worker has been busy with Inputs since that report. */
   deliveredAt?: string
   /**
@@ -297,6 +298,8 @@ export interface Ticket {
   follows?: Follow[]
   /** People's questions the worker answered, whose answers the main Session may send. */
   answers?: string[]
+  /** How many milestone reports its workers made; a ticket that posted milestones also posts its result as a new message. */
+  milestones?: number
   createdAt: string
   updatedAt: string
   /** The Triggers it was accepted from: the one that started it, and the batch its Eval held. */

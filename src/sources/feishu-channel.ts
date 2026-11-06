@@ -15,13 +15,22 @@ export const feishuChatLink = (brand: 'feishu' | 'lark', chatId: string): string
  */
 const gone = (error: unknown): boolean => error instanceof CliError && error.code !== undefined && (error.code === 230011
   || /withdrawn/i.test(error.message) || (Math.floor(error.code / 100) === 2300 && /not found/i.test(error.message)))
-/** Replies in the topic of the target message; Feishu keeps at most one reply per idempotency key (the outgoing message's `message.id`). */
+/**
+ * Replies in the topic of the target message, or posts a new message in its chat when the message is `standalone`; Feishu keeps
+ * at most one message per idempotency key (the outgoing message's `message.id`).
+ */
 export async function sendFeishu(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'> {
-  const messageId = message.channel.address.messageId
-  if (!messageId) throw new Error('Missing Feishu reply target')
+  const { messageId, chatId } = message.channel.address
   const text = checkedImText(message.text)
-  const reply = ['im', '+messages-reply', '--message-id', messageId, '--markdown', text, '--reply-in-thread', '--idempotency-key', message.id]
-  try { await host.commands.lark(reply) }
+  let command: string[]
+  if (message.standalone) {
+    if (!chatId) throw new Error('Missing Feishu chat for a standalone message')
+    command = ['im', '+messages-send', '--chat-id', chatId, '--markdown', text, '--idempotency-key', message.id]
+  } else {
+    if (!messageId) throw new Error('Missing Feishu reply target')
+    command = ['im', '+messages-reply', '--message-id', messageId, '--markdown', text, '--reply-in-thread', '--idempotency-key', message.id]
+  }
+  try { await host.commands.lark(command) }
   catch (error) {
     if (gone(error)) return 'gone'
     throw error
