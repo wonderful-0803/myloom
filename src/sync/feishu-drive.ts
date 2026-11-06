@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { commandArgv } from '../infra/process.ts'
 import { SyncError } from './model.ts'
+import { FeishuSetupError, type FeishuUserConfig } from './feishu-config.ts'
 
 export const feishuSyncScopes=['auth:user.id:read','offline_access','space:document:retrieve','space:folder:create','drive:file:upload','drive:file:download','space:document:delete']
 export const DriveFile=z.object({name:z.string().max(500),token:z.string().regex(/^[A-Za-z0-9_-]{1,200}$/),type:z.string(),modified_time:z.string().optional(),owner_id:z.string().optional()})
@@ -23,25 +24,30 @@ export type CliRunner=(args:string[],cwd:string|undefined,signal:AbortSignal)=>P
 const exec=promisify(execFile)
 /** Closed command construction, private temporary files, bounded results, and safe CLI error envelopes. */
 export class FeishuDrive implements DrivePort {
-  constructor(private readonly directory:string,private readonly cli:()=>string=()=>process.env.LOOM_SYNC_FEISHU_CLI||'lark-cli',private readonly runner?:CliRunner,private readonly environment:()=>Record<string,string|undefined>=()=>({})) {
+  constructor(private readonly directory:string,private readonly cli:()=>string=()=>process.env.LOOM_SYNC_FEISHU_CLI||'lark-cli',private readonly runner?:CliRunner,private readonly environment:()=>Record<string,string|undefined>=()=>({}),private readonly userConfig?:FeishuUserConfig) {
     mkdirSync(directory,{recursive:true,mode:0o700});chmodSync(directory,0o700)
   }
   private temporary() {return mkdtempSync(join(this.directory,'transfer-'))}
+  prepare(appId:string) { if(!process.env.LOOM_SYNC_FEISHU_CLI)this.userConfig?.prepare(appId) }
   async call(args:string[],cwd:string|undefined,signal:AbortSignal):Promise<any> {
     signal.throwIfAborted()
     try {
       if(this.runner)return await this.runner(args,cwd,signal)
       const [file,...argv]=commandArgv(this.cli(),args)
-      const {stdout}=await exec(file!,argv,{cwd,signal,windowsHide:true,timeout:45_000,maxBuffer:4_000_000,env:{...process.env,...this.environment(),LARKSUITE_CLI_NO_UPDATE_NOTIFIER:'1',LARKSUITE_CLI_NO_SKILLS_NOTIFIER:'1'}})
+      const {stdout}=await exec(file!,argv,{cwd,signal,windowsHide:true,timeout:45_000,maxBuffer:4_000_000,env:{...process.env,...this.environment(),...(process.env.LOOM_SYNC_FEISHU_CLI?{}:this.userConfig?.environment()),LARKSUITE_CLI_NO_UPDATE_NOTIFIER:'1',LARKSUITE_CLI_NO_SKILLS_NOTIFIER:'1'}})
       try{return JSON.parse(stdout)}catch{return {}}
     } catch(error) {
       if(error instanceof SyncError)throw error
+      const code=(error as {code?:string|number}).code
+      if(code==='ENOENT')throw new FeishuSetupError('cli-missing','未找到可运行的飞书 CLI，请在本机安装 lark-cli，并确认 Loom 启动时可以访问它。',503)
       let refusal:any
-      try{refusal=JSON.parse(String((error as {stderr?:string}).stderr??'')).error}catch{/* never expose raw diagnostics */}
-      if(refusal?.subtype==='missing_scope')throw new SyncError(403,'飞书云空间权限尚未授权，请重新完成同步授权。')
-      if(refusal?.type==='authorization')throw new SyncError(401,'飞书用户授权已失效，请重新登录。')
+      for(const stream of ['stderr','stdout'] as const)try{const parsed=JSON.parse(String((error as Record<string,unknown>)[stream]??''));if(parsed.error){refusal=parsed.error;break}}catch{/* never expose raw diagnostics */}
+      if(refusal?.type==='config')throw new FeishuSetupError('configuration-required','用于同步的飞书应用尚未配置或凭据不可用。桌面首次配置的助手请更新引擎后重试；手动部署请配置同一应用的独立用户 CLI。',409)
+      if(/strict|identity.*(?:disallowed|not_allowed)/i.test(String(refusal?.subtype??'')))throw new FeishuSetupError('bot-only','当前飞书 CLI 只允许机器人身份，无法生成用户授权二维码；请使用独立的同步用户配置，不要解除机器人的身份限制。',409)
+      if(refusal?.subtype==='missing_scope')throw new FeishuSetupError('needs-permission','飞书云空间权限尚未授权，请重新完成同步授权。',403)
+      if(refusal?.type==='authorization')throw new FeishuSetupError('signed-out','飞书用户授权已失效，请重新登录。',401)
       if((error as {code?:number}).code===10)throw new SyncError(409,'飞书要求确认此操作，尚未执行。')
-      throw new SyncError(502,'飞书操作未完成，请检查授权、网络或稍后重试。')
+      throw new FeishuSetupError('unavailable','飞书连接未完成，请检查网络、CLI 版本及应用权限后重试。',502)
     }
   }
   private async data(args:string[],signal:AbortSignal,cwd?:string) {

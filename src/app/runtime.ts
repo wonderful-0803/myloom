@@ -45,6 +45,7 @@ import { DeviceSync } from '../sync/client.ts'
 import { SyncDatabase } from '../sync/database.ts'
 import { FeishuSync } from '../sync/feishu.ts'
 import { FeishuDrive } from '../sync/feishu-drive.ts'
+import { desktopFeishuConfig, FeishuUserConfig } from '../sync/feishu-config.ts'
 import { FeishuAssistant } from './feishu-assistant.ts'
 import { Artifacts } from './artifacts.ts'
 import { LoomWorkspace } from './loom.ts'
@@ -225,7 +226,10 @@ export class Runtime extends Service implements SourceHost {
       this.deviceSync = new DeviceSync(syncData, { owner: () => this.loom.owner(), paused: () => this.paused(), lifetime: this.lifetime })
       this.disposers.push(() => syncData.close())
       const feishuData = new SyncDatabase(join(machine.stateDir, 'device-sync', 'feishu.sqlite'))
-      this.feishuSync = new FeishuSync(feishuData, new FeishuDrive(join(machine.stateDir, 'device-sync', 'transfers'), undefined, undefined, () => setup.commandEnvironment), {
+      const syncIdentity = () => ({ appId: setup.deployment.feishu?.appId ?? '', owner: this.loom.owner() })
+      const syncUserConfig = new FeishuUserConfig(join(machine.stateDir, 'device-sync', 'user-cli'),
+        () => desktopFeishuConfig(machine.stateDir, { ...syncIdentity(), cli: setup.deployment.feishu?.cli ?? '' }), syncIdentity)
+      this.feishuSync = new FeishuSync(feishuData, new FeishuDrive(join(machine.stateDir, 'device-sync', 'transfers'), undefined, undefined, () => setup.commandEnvironment, syncUserConfig), {
         owner: () => this.loom.owner(), appId: () => setup.deployment.feishu?.appId ?? '', paused: () => this.paused(), lifetime: this.lifetime })
       this.disposers.push(() => feishuData.close())
       this.codexDaily = new CodexDaily({ store, sources, effects, history: this.codexHistory, engine, lifetime: this.lifetime, configured: () => setup.configured(), paused: () => this.paused() })

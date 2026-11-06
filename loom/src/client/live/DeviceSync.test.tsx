@@ -110,3 +110,25 @@ it('shows the real authorization QR and requires directory consent before connec
   expect(host.textContent).toContain('自动同步暂停')
   expect(vi.mocked(api).mock.calls.some(c=>c[0].endsWith('/mapping')||c[0].endsWith('/run'))).toBe(false)
 })
+
+it('shows actionable login failures, removes a stale QR, and allows generating a new one',async()=>{
+  let fail=false
+  vi.mocked(api).mockImplementation(async(path)=>{
+    if(path==='/sync/feishu')return {...cloudStatus,account:{...cloudStatus.account,state:'configuration-required',message:'用于同步的飞书应用尚未配置。'}} as any
+    if(path==='/sync/feishu/auth/start'){
+      if(fail)throw Error('用于同步的飞书应用尚未配置。')
+      return {url:'https://accounts.feishu.cn/test',qr:'data:image/png;base64,aGVsbG8=',expires:Date.now()+300000} as any
+    }
+    throw Error('unexpected API '+path)
+  })
+  await act(async()=>root.render(<DeviceSync/>))
+  expect(host.textContent).toContain('用于同步的飞书应用尚未配置')
+  await act(async()=>button('登录飞书并授权同步').click())
+  expect(host.querySelector('img')).not.toBeNull()
+  fail=true;await act(async()=>button('重新生成授权二维码').click())
+  expect(host.querySelector('img')).toBeNull()
+  expect(host.textContent).toContain('用于同步的飞书应用尚未配置')
+  expect(button('登录飞书并授权同步').disabled).toBe(false)
+  fail=false;await act(async()=>button('登录飞书并授权同步').click())
+  expect(host.querySelector('img')).not.toBeNull()
+})

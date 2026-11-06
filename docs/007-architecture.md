@@ -299,6 +299,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sync/mcp.ts` | Read-only MCP stdio adapter using the official SDK, connected only to the local Loom owner API |
 | `src/sync/index.ts` | Embeddable sync service exports for isolated compiled-artifact checks |
 | `src/sync/feishu-drive.ts` | Fixed user-identity CLI authorization and Drive operations with private transfers, bounded files and safe errors |
+| `src/sync/feishu-config.ts` | Explicit desktop-owned user-profile preparation using only the existing app's file reference, plus safe setup diagnostics |
 | `src/sync/feishu-cloud.ts` | Owner-bound private Drive log, immutable batch hashes, reconstruction, receipts, revocation and project cleanup |
 | `src/sync/feishu.ts` | Independent Feishu connector lifecycle and private device-code authorization; reuses project/AI grants and capture |
 | `scripts/sync-local.mjs` | Linux loopback hub bootstrap with private credentials and state; operator steps in `docs/DEVICE_SYNC_LINUX_ACCEPTANCE.md` |
@@ -445,6 +446,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/device-sync-api.spec.ts` | Runtime owner routing, disabled defaults, MCP configuration and rejection of unsupported or impersonating requests |
 | `tests/feishu-sync.spec.ts` | Two synthetic Drive connectors with persisted stores, offline source, plan continuity, retry receipts, identity and revocation checks |
 | `tests/feishu-drive.spec.ts` | Actual CLI adapter command contracts, user-only envelopes, private relative file transfers and authorization host checks |
+| `tests/feishu-config.spec.ts` | Fresh desktop profile preparation, unchanged strict bot identity, owner/app binding, unknown file and symlink refusal |
 | `loom/src/client/live/DeviceSync.test.tsx` | Pairing defaults, no unsolicited source reads, explicit collection consent and independent AI access controls |
 | `tests/core-engine.spec.ts` | Domain rules on in-memory repositories: receiving, Eval, fan-out, resume and stop, interrupted Assignments, the pause, Policy changes, reports and outcomes, attaching, replies, failed deliveries and dismissed problems |
 | `tests/stage.spec.ts` | The Ticket stages, row by row |

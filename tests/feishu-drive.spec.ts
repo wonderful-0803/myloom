@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync }
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { FeishuDrive, feishuSyncScopes, type CliRunner } from '../src/sync/feishu-drive.ts'
+import { FeishuSetupError } from '../src/sync/feishu-config.ts'
 let directory:string
 beforeEach(()=>{directory=mkdtempSync(join(tmpdir(),'loom-drive-adapter-'))})
 afterEach(()=>{vi.unstubAllEnvs();rmSync(directory,{recursive:true,force:true})})
@@ -40,6 +41,21 @@ it('rejects a non-Feishu login destination before generating a QR or storing a d
   const runner=vi.fn<CliRunner>().mockResolvedValue({device_code:'private',verification_url:'https://untrusted.example/login'})
   await expect(new FeishuDrive(directory,undefined,runner).begin(new AbortController().signal)).rejects.toMatchObject({status:502})
   expect(runner).toHaveBeenCalledTimes(1)
+})
+
+it('distinguishes a fresh unconfigured CLI, a missing executable, and a connection failure without leaking diagnostics',async()=>{
+  const runner=vi.fn<CliRunner>(),drive=new FeishuDrive(directory,undefined,runner),signal=new AbortController().signal
+  runner.mockRejectedValueOnce({code:3,stderr:JSON.stringify({ok:false,error:{type:'config',subtype:'not_configured',message:'private-credential-diagnostic'}})})
+  await expect(drive.application(signal)).rejects.toMatchObject({state:'configuration-required',status:409})
+  runner.mockRejectedValueOnce({code:'ENOENT',stderr:'private-credential-diagnostic'})
+  await expect(drive.application(signal)).rejects.toMatchObject({state:'cli-missing',status:503})
+  runner.mockRejectedValueOnce({code:1,stdout:JSON.stringify({error:{type:'authorization',message:'private-credential-diagnostic'}})})
+  await expect(drive.application(signal)).rejects.toMatchObject({state:'signed-out',status:401})
+  runner.mockRejectedValueOnce({code:1,stderr:'private-credential-diagnostic'})
+  try { await drive.application(signal); throw Error('expected refusal') } catch(error) {
+    expect(error).toBeInstanceOf(FeishuSetupError); expect(error).toMatchObject({state:'unavailable'})
+    expect(String(error)).not.toContain('private-credential-diagnostic')
+  }
 })
 
 it.skipIf(process.platform==='win32')('uses the host user CLI environment even while Harness PATH points at a bot shim',async()=>{

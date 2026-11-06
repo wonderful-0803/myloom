@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { DeviceSync } from './client.ts'
 import { FeishuCloud } from './feishu-cloud.ts'
 import { FeishuDrive, type DrivePort } from './feishu-drive.ts'
+import { FeishuSetupError } from './feishu-config.ts'
 import { SyncDatabase } from './database.ts'
 import { hash, name, SyncError } from './model.ts'
 import type { ReadCodex } from './codex.ts'
@@ -23,7 +24,7 @@ export class FeishuSync {
       const identity=await this.drive.identity(this.host.lifetime);this.check(owner)
       if(identity.owner!==owner||identity.appId!==this.host.appId())return {state:'wrong-owner' as const,name:'',missing:[] as string[],message:'请使用与本机所有者一致的飞书账号和应用登录。'}
       return {state:identity.missing.length?'needs-permission' as const:'ready' as const,name:identity.name,missing:identity.missing,message:identity.missing.length?'需要补充云空间同步权限。':''}
-    }catch(error){this.check(owner);return {state:'signed-out' as const,name:'',missing:[] as string[],message:error instanceof SyncError?error.message:'请检查本机飞书 CLI 并完成用户授权。'}}
+    }catch(error){this.check(owner);return {state:error instanceof FeishuSetupError?error.state:error instanceof SyncError&&error.status===401?'signed-out' as const:'unavailable' as const,name:'',missing:[] as string[],message:error instanceof SyncError?error.message:'请检查本机飞书 CLI 并完成用户授权。'}}
   }
   async status(owner:string) {this.check(owner);const account=await this.account(owner);return {...this.connector.status(owner),provider:'feishu' as const,account}}
   async handle(owner:string,method:string,path:string[],input?:unknown):Promise<unknown> {
@@ -33,6 +34,7 @@ export class FeishuSync {
       z.object({}).strict().parse(input??{})
       if(!(this.drive instanceof FeishuDrive))throw new SyncError(409,'此运行环境不提供交互授权。')
       if(path[1]==='start') {
+        this.drive.prepare(this.host.appId())
         if(await this.drive.application(this.host.lifetime)!==this.host.appId())throw new SyncError(403,'飞书 CLI 应用与本机助手不一致，请先配置同一应用。')
         const value=await this.drive.begin(this.host.lifetime);this.check(owner)
         this.data.set(this.key(owner),{...value,appId:this.host.appId()})
