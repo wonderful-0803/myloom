@@ -390,6 +390,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/views/overview.ts` | The overview: Tickets that need a person, problems, the last day's flow and the Executor's load |
 | `src/executor/dsh.ts` | The DshExecutor, `WorkerSlots`, `ticketExecution`, `inputMessage` and `mandateInstructions` |
 | `src/executor/background.ts` | A worker's background work in DeepSeek Harness, the shell jobs its Session owns (`ctx.jobs`) and its subagents (`ctx.subagents`): `runningJobs`, `untilQuiet`, `killJobs`, `collectJobs`, `stopSubagents`, `stopBackground`, `until`, and `cancelled`, the workers whose turn a stop of their subagents cancelled |
+| `src/execution/port.ts` | Typed execution intents and trusted task/session/environment bindings; a shared local port for preparation, native tools, background jobs and stop confirmation; refuses Runner targets and local fallback |
 | `src/infra/commands.ts` | `Commands`, the CLI transport: `run`; `api` and `pages`, limited to the configured repository and validated; `lark` as the bot; `git`. `CliError` carries the code a command's output reports, such as a GitHub HTTP status, and a command that prints nothing fails with how it ended, never with its arguments; `validItems` skips and counts the malformed items of a list |
 | `src/infra/environment.ts` | The agent's process environment: command shims, the git configuration and credential helper, `runAsWorker`, and the checks of the environment and of a Ticket's directory |
 | `src/infra/process.ts` | Native Node CLI argument arrays and platform-specific workspace preparation shells |
@@ -473,6 +474,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/personal.spec.ts` | Feishu-only startup without GitHub, office result delivery and continuation, and silent observe/auto rule handling |
 | `tests/personal-setup.spec.ts` | Desktop-owned initial settings, single-owner and source-scope validation, idempotent initialization, and refusal to replace existing or foreign state |
 | `tests/task-control.spec.ts` | Durable personal task holds, native tool leases, in-flight and queued delivery, recovery, and owner-only follow-ups |
+| `tests/execution-port.spec.ts` | Local workspace and native result preservation, legacy targets, Runner refusal without local side effects, subagent bindings, dispatch revalidation and unknown/stop control semantics |
 | `tests/feishu-assistant.spec.ts` | Real source ingress for owner task queries and controls, private report exports, replay/freshness/revision checks, authorization revocation and uncertain sends |
 | `tests/feishu-mail.spec.ts` | Fixed-recipient Feishu/163 mail previews, confirmation, provider/account binding, SMTP acceptance versus delivery, pause/revocation, unknown outcomes and private ingress |
 | `tests/artifacts.spec.ts` | Immutable report revisions, source revocation, drained human control and stale Worker publication conflicts |

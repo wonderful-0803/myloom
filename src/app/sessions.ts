@@ -19,6 +19,7 @@ import { SKILL_PREFIX, type PromptVersion, type Prompts } from './prompts.ts'
 import type { Store } from './store.ts'
 import { KV } from '../kv.ts'
 import type { TaskControls } from './task-control.ts'
+import { assertExecutionBinding, executionRequest, executionTarget, ExecutionUnavailable, LocalExecutionPort, type ExecutionPort } from '../execution/port.ts'
 import type { RegisterTool, Tool } from './tools/tool.ts'
 
 /** Host dependencies used by `Sessions`. */
@@ -33,6 +34,7 @@ export interface SessionsHost {
   readonly masterId: string
   readonly lifetime: AbortSignal
   readonly controls?: TaskControls
+  readonly execution?: ExecutionPort
   closing(): boolean
   /** Execution environment variables for `ticket`, rendered into its worker's system prompt. */
   environment(ticket: Ticket): Variable[]
@@ -93,6 +95,7 @@ function noWait({ name, arguments: input }: { name: string; arguments: unknown }
  * Feeds session events into `RetryHealth` to report model budget waits on the `models` `HealthEntry`, and durably records which prompt revisions each session has worked under in `Store` (`KV.sessions.prompts`) to authorize prompt version reads.
  */
 export class Sessions {
+  private readonly execution: ExecutionPort
   private readonly agentDelivery: AgentDelivery
   /** Decorated agents mapped to their registered disposers and skill scope until the agent is disposed or `Sessions.dispose()` runs. */
   private readonly bindings = new Map<Agent, SessionBinding>()
@@ -101,6 +104,7 @@ export class Sessions {
   /** Registers ordered `relay` and `notice` effect handlers that deliver to the main Session. */
   constructor(private readonly host: SessionsHost) {
     this.ctx = host.context
+    this.execution = host.execution ?? new LocalExecutionPort()
     this.agentDelivery = new AgentDelivery(host.context)
     // Deliver relays and notices to the main Session in the order they were queued.
     host.effects.handle('relay', ({ text }, requestId) => this.prompt(host.masterId, requestId, text, 'steer'), { ordered: true })
@@ -139,6 +143,10 @@ export class Sessions {
   /** Resolves or creates session `id` in workspace `cwd`, initializes its role model, decorates it with prompts/skills/tools, sets `danger-full-access` permissions, and renames it to `title`. */
   async ensure(id: string, cwd: string, title: string, role: 'orchestrator' | 'worker'): Promise<Agent> {
     const ctx = this.ctx
+    const ticketId = ticketOfSession(id), ticket = ticketId && this.host.store.tickets.get(ticketId)
+    // workspaceRegistry currently resolves host directories. Remote compute scratch workspaces belong to the Runner package.
+    if (role === 'worker' && ticket && executionTarget(ticket).kind !== 'local')
+      throw new ExecutionUnavailable('Runner sessions are not enabled; refusing a compute-host workspace')
     let result = await ctx.sessionController.resolveAgent(id as SessionId)
     if ('error' in result && result.error.code === 'session/not-found') {
       const workspace = await ctx.workspaceRegistry.create(cwd)
@@ -303,18 +311,33 @@ export class Sessions {
     const parent = scopeParentOf(agent)
     const codex = store.tickets.get(ticketId)?.mandate.actor.source === 'codex-daily'
     const allow = codex ? [] : WORK_TOOLS.filter(name => agent.ctx.tools.get(name, parent))
-    return [agent.ctx.tools.restrict({ allow }), agent.ctx.tools.guard(execution => {
+    const guard = (execution: { name: string }) => {
       if (codex && !['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report'].includes(execution.name)) return 'Codex daily reports allow scoped reads and reports only'
       const current = store.tickets.get(ticketId)
       if (this.host.controls?.held(ticketId)) return 'Task paused or under human control; only the operator can return it'
       return !current || !liveTicket(current) ? 'Ticket ended; new work needs a new authorized ticket' : undefined
-    }), agent.ctx.on('tools/execute', async (execution, next) => {
-      if (!this.host.controls || execution.name.startsWith('orchestrator_')) return next()
-      return this.host.controls.run(ticketId, execution.name, async signal => {
+    }
+    return [agent.ctx.tools.restrict({ allow }), agent.ctx.tools.guard(guard), agent.ctx.on('tools/execute', async (execution, next) => {
+      if (execution.name.startsWith('orchestrator_')) return next()
+      const invoke = async (signal: AbortSignal) => {
+        const ticket = store.tickets.get(ticketId)
+        if (!ticket || !liveTicket(ticket)) throw new Error('Ticket ended; dispatch refused')
+        const revision = this.host.controls?.view(ticketId).revision ?? 0
+        const request = executionRequest(ticket, agent.id, revision, 'tool',
+          { name: execution.name, arguments: execution.arguments }, execution.callId)
         const original = execution.signal
-        execution.signal = AbortSignal.any([original, signal])
-        try { return await next() } finally { execution.signal = original }
-      })
+        return this.execution.run(request, { signal: AbortSignal.any([original, signal, this.host.lifetime]), authorize: () => {
+          assertExecutionBinding(store.tickets.get(ticketId), request.binding)
+          const denied = guard(execution)
+          if (denied) throw new Error(denied)
+          if (this.host.controls?.held(ticketId) || this.host.controls && this.host.controls.view(ticketId).revision !== revision)
+            throw new Error('Task paused or under human control; dispatch refused')
+        } }, async routedSignal => {
+          execution.signal = routedSignal
+          try { return await next() } finally { execution.signal = original }
+        })
+      }
+      return this.host.controls ? this.host.controls.run(ticketId, execution.name, invoke) : invoke(execution.signal)
     })]
   }
   /**

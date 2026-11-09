@@ -16,6 +16,8 @@ import { Later, type Effects } from '../app/effects.ts'
 import { executionRoot, type Variable } from '../app/execution-environment.ts'
 import type { Sessions } from '../app/sessions.ts'
 import type { TaskControls } from '../app/task-control.ts'
+import { assertExecutionBinding, executionRequest, LocalExecutionPort, type ExecutionPort,
+  type ExecutionOperation, type ExecutionOperations } from '../execution/port.ts'
 import { WorktreeNameSchema } from '../app/assessment.ts'
 import { resultRelay } from '../app/notices.ts'
 import type { HealthEntry } from '../infra/health.ts'
@@ -72,6 +74,7 @@ export interface ExecutorHost {
   readonly machine: Pick<Machine, 'stateDir'>
   readonly lifetime: AbortSignal
   readonly controls?: TaskControls
+  readonly execution?: ExecutionPort
   /** Session manager for worker sessions and for relaying worker reports to the main Session. */
   readonly sessions: Pick<Sessions, 'ensure' | 'prompt' | 'promptedId' | 'relay' | 'holds'>
   closing(): boolean
@@ -110,7 +113,7 @@ export function ticketExecution(ticket: Ticket, outcome: Extract<AssessmentOutco
   const assignment = ticket.mandate.strength === 'inferred' && ruleIds
     ? `Proactively accepted under ${ruleIds.join(', ')}. Scope: ${outcome.scope}.${precedence}${note}`
     : note.trim()
-  return { name, directory: join(executionRoot(settings, stateDir), name), assignment }
+  return { name, directory: join(executionRoot(settings, stateDir), name), assignment, target: { kind: 'local' } }
 }
 /** Character limits for inline assignment and trigger text in worker messages; longer text is read via its resource. */
 const ASSIGNMENT_CHARS = 1500, TRIGGER_CHARS = 600
@@ -208,6 +211,7 @@ export class WorkerSlots {
  * Runtime, Engine, worker tools, and management routes use this class to prepare, launch, deliver to, stop, and resume ticket assignments.
  */
 export class DshExecutor implements Executor {
+  private readonly execution: ExecutionPort
   private readonly disposers: (() => void)[] = []
   private readonly slots: WorkerSlots
   /** Transient failure counts tried so far: keyed by `assignment.id` for worker turns and `launch:<assignment.id>` for launches. */
@@ -229,6 +233,7 @@ export class DshExecutor implements Executor {
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
   /** Registers the `launch` and `delivery` effect handlers; both are held (concurrency limit 0) while processing is paused. */
   constructor(private readonly host: ExecutorHost) {
+    this.execution = host.execution ?? new LocalExecutionPort()
     this.slots = new WorkerSlots(() => host.store.tickets.open().filter(ticket => this.running(ticket)).map(ticket => ticket.id),
       () => host.store.settings().executor.maxWorkers)
     // Each launch reserves a worker slot so launches run concurrently while slots are free.
@@ -247,21 +252,23 @@ export class DshExecutor implements Executor {
    * A failed prepare command throws `PrepareFailed`, which is not retried automatically; an empty directory it left is removed, a non-empty one kept.
    * @throws PrepareFailed with the command's output when the prepare command fails.
    */
-  private async prepareDirectory(ticket: Ticket, controlSignal?: AbortSignal): Promise<void> {
+  private async prepareDirectory(ticket: Ticket, input: ExecutionOperations['prepare']['input'], controlSignal: AbortSignal): Promise<void> {
     const directory = ticket.execution?.directory ?? ''
-    await mkdir(dirname(directory), { recursive: true })
-    const command = ticket.mandate.actor.source === 'codex-daily' ? '' : this.host.store.settings().executor.prepare.trim()
-    const env = Object.fromEntries(this.host.environment(ticket).map(variable => [variable.key, variable.value]))
     // Enforce a timeout so a hung prepare command (such as on a credential prompt) fails the ticket instead of holding a worker slot indefinitely.
-    const signal = AbortSignal.any([this.host.lifetime, AbortSignal.timeout(PREPARE_TIMEOUT_MS), ...controlSignal ? [controlSignal] : []])
-    if (command) await runAsWorker(this.host.context.subprocess, shellArgv(command), dirname(directory), signal, env)
+    const signal = AbortSignal.any([this.host.lifetime, AbortSignal.timeout(PREPARE_TIMEOUT_MS), controlSignal])
+    signal.throwIfAborted()
+    await mkdir(dirname(directory), { recursive: true })
+    signal.throwIfAborted()
+    if (input.command) await runAsWorker(this.host.context.subprocess, shellArgv(input.command), dirname(directory), signal, input.variables)
       .catch(async (error: unknown) => {
         // Remove an empty directory left by a failed prepare command so a later retry does not treat it as already prepared.
         await rmdir(directory).catch(() => { /* Absent, or holding what the command wrote, which the output explains. */ })
         throw new PrepareFailed(`The prepare command failed: ${error instanceof Error ? error.message : String(error)}`)
       })
+    signal.throwIfAborted()
     await mkdir(directory, { recursive: true })
-    await verifyDirectory(directory, this.host.context.subprocess, this.host.lifetime)
+    signal.throwIfAborted()
+    await verifyDirectory(directory, this.host.context.subprocess, signal)
   }
   /** Enqueues a `launch` effect for an accepted or resumed assignment; launches start in queue order as worker slots free up. */
   start(ticket: Ticket, assignment: Assignment): void {
@@ -317,6 +324,8 @@ export class DshExecutor implements Executor {
         try {
           // Recreate the worker session if it was externally deleted.
           if (!this.host.context.agents.get(sessionId as SessionId)) {
+            // Resolving a DSH workspace touches the compute host filesystem too. Refuse an unavailable Runner first.
+            await this.environmentCall(ticket, 'prepare', { command: '', variables: {} }, async () => {}, this.host.lifetime)
             await this.host.sessions.ensure(sessionId, ticket.execution?.directory ?? '', ticket.title, 'worker')
           }
           if (input) await this.deliverInput(ticket, assignment, input)
@@ -376,7 +385,10 @@ export class DshExecutor implements Executor {
   }
   /** Stop what a ticket's worker runs in the background (see `stopBackground`). */
   private stopWork(ticketId: string, reason: string, keepInbox = false): void {
-    this.track(ticketId, stopBackground(this.host.context, workerSessionId(ticketId), reason, keepInbox))
+    const ticket = this.host.store.tickets.get(ticketId)
+    if (!ticket) return
+    this.track(ticketId, this.environmentCall(ticket, 'stop', { reason, keepInbox },
+      () => stopBackground(this.host.context, workerSessionId(ticketId), reason, keepInbox)))
   }
   /** A stop of a ticket's background work, which a launch or a delivery of the ticket waits for while it runs. */
   private track(ticketId: string, stop: Promise<void>): void {
@@ -398,7 +410,11 @@ export class DshExecutor implements Executor {
     const agents = this.host.store.tickets.list().map(ticket => this.host.context.agents.get(workerSessionId(ticket.id) as SessionId))
       .filter((agent): agent is Agent => agent !== undefined)
     const stop = async () => {
-      await Promise.allSettled(agents.map(agent => stopBackground(this.host.context, agent.id, 'dsh-superagent stopped', true)))
+      await Promise.allSettled(agents.map(agent => {
+        const ticket = this.ticketOf(agent)!
+        return this.environmentCall(ticket, 'stop', { reason: 'dsh-superagent stopped', keepInbox: true },
+          () => stopBackground(this.host.context, agent.id, 'dsh-superagent stopped', true))
+      }))
       for (const { collect } of this.left.values()) collect.abort()
       const running = agents.filter(agent => agent.status !== 'idle')
       for (const agent of running) agent.cancel({ kind: 'user' }, { keepInbox: true })
@@ -438,12 +454,18 @@ export class DshExecutor implements Executor {
     const source = sourceTrigger(this.host, ticket)
     const workspace = ticket.execution?.directory ?? ''
     if (!current()) return
-    // Prepare the workspace directory once; an existing directory counts as already prepared, including worktrees created before `prepare` commands existed.
-    if (!await stat(workspace).then(() => true, () => false)) {
-      if (this.host.controls) await this.host.controls.run(ticket.id, 'prepare', signal => this.prepareDirectory(ticket, signal))
-      else await this.prepareDirectory(ticket)
-      if (!current()) return
-    }
+    const command = ticket.mandate.actor.source === 'codex-daily' ? '' : this.host.store.settings().executor.prepare.trim()
+    const variables = Object.fromEntries(this.host.environment(ticket).map(variable => [variable.key, variable.value]))
+    // The boundary precedes even stat(): a remote path must never be probed or created on the compute machine.
+    const prepare = (signal: AbortSignal) => this.environmentCall(ticket, 'prepare', { command, variables }, async routedSignal => {
+      if (!await stat(workspace).then(() => true, () => false)) {
+        routedSignal.throwIfAborted()
+        if (!current()) throw new Error('Launch authorization changed before workspace preparation')
+        await this.prepareDirectory(ticket, { command, variables }, routedSignal)
+      }
+    }, signal, () => { if (!current()) throw new Error('Launch authorization changed before workspace preparation') })
+    if (this.host.controls) await this.host.controls.run(ticket.id, 'prepare', prepare)
+    else await prepare(this.host.lifetime)
     if (!current()) return
     const sessionId = workerSessionId(ticket.id)
     const agent = await this.host.sessions.ensure(sessionId, workspace, ticket.title, 'worker')
@@ -553,7 +575,19 @@ export class DshExecutor implements Executor {
     this.stopWork(ticketId, 'Human paused or took over the task', true)
     await this.stopped(ticketId)
     await agent?.whenIdle()
-    await confirmStopped(this.host.context, workerSessionId(ticketId))
+    const ticket = this.host.store.tickets.get(ticketId)
+    if (!ticket) throw new Error('Cannot confirm a missing execution task')
+    await this.environmentCall(ticket, 'confirm-stopped', {}, () => confirmStopped(this.host.context, workerSessionId(ticketId)))
+  }
+  /** All environment effects/observations share a target boundary; cleanup remains allowed while held or shutting down. */
+  private async environmentCall<K extends ExecutionOperation>(ticket: Ticket, operation: K, input: ExecutionOperations[K]['input'],
+    local: (signal: AbortSignal) => Promise<ExecutionOperations[K]['output']>, signal = new AbortController().signal,
+    authorize?: () => void): Promise<ExecutionOperations[K]['output']> {
+    const request = executionRequest(ticket, workerSessionId(ticket.id), this.host.controls?.view(ticket.id).revision ?? 0, operation, input)
+    return this.execution.run(request, { signal, authorize: () => {
+      assertExecutionBinding(this.host.store.tickets.get(ticket.id), request.binding)
+      authorize?.()
+    } }, local)
   }
   /** Explicit return only: restart the managed assignment and reread human edits before doing more work. */
   resumeTask(ticketId: string): void {
@@ -614,13 +648,18 @@ export class DshExecutor implements Executor {
    * person, are left to the person until the Assignment ends. They hold no slot and run past any limit; their ends are
    * collected, so none wakes the worker outside a slot, and the worker reads of each at its next turn.
    */
-  private handOff(ticketId: string, agent: Agent): void {
+  private async handOff(ticketId: string, agent: Agent): Promise<void> {
     this.track(ticketId, stopSubagents(this.host.context, agent, true))
     const left = this.left.get(ticketId) ?? { jobs: new Set<string>(), collect: new AbortController() }
     this.left.set(ticketId, left)
-    for (const job of runningJobs(this.host.context, agent.id, left.jobs)) {
+    const ticket = this.host.store.tickets.get(ticketId)
+    if (!ticket) return
+    const jobs = await this.environmentCall(ticket, 'jobs-list', { except: [...left.jobs] },
+      async () => runningJobs(this.host.context, agent.id, left.jobs), left.collect.signal)
+    for (const job of jobs) {
       left.jobs.add(job.id)
-      void this.background(collectJob(this.host.context, agent.id, job, left.collect.signal).then(async ended => {
+      void this.background(this.environmentCall(ticket, 'job-collect', { job },
+        signal => collectJob(this.host.context, agent.id, job, signal), left.collect.signal).then(async ended => {
         if (!ended) return
         const note = `Your background job ${ended.name} ended: ${ended.status}.`
         await this.host.sessions.prompt(agent.id, `ended:${job.id}`, note, { inject: 'Background job ended' })
@@ -652,7 +691,7 @@ export class DshExecutor implements Executor {
     // The worker read what reached it before a turn that ended: one it handed off with, or one whose background work ended.
     if (handedOff(before) && !(report && person && person > report.at)) {
       this.host.engine.turnEnded(ticket.id, idle.id)
-      this.handOff(ticket.id, agent)
+      await this.handOff(ticket.id, agent)
       return
     }
     // Its turn ends once nothing runs for it in the background, which holds its slot meanwhile: at most for the limit from
@@ -664,7 +703,8 @@ export class DshExecutor implements Executor {
     timer.unref?.()
     let quiet: boolean
     const left = this.left.get(ticket.id)?.jobs
-    try { quiet = await untilQuiet(this.host.context, agent, AbortSignal.any([this.host.lifetime, look.signal, limit.signal]), left) }
+    try { quiet = await this.environmentCall(ticket, 'settle', { except: [...left ?? []] },
+      signal => untilQuiet(this.host.context, agent, signal, left), AbortSignal.any([this.host.lifetime, look.signal, limit.signal])) }
     finally { clearTimeout(timer); if (this.settling.get(ticket.id) === look) this.settling.delete(ticket.id) }
     const current = live()
     if (this.host.closing() || look.signal.aborted || (!quiet && !limit.signal.aborted) || !current || this.resuming.has(idle.id)) return
@@ -674,9 +714,11 @@ export class DshExecutor implements Executor {
       // Its shell jobs that ran past the limit are killed, which it is told at its next turn; its subagents, whose stop would
       // wake it, go on.
       const sessionId = workerSessionId(ticket.id), minutes = BACKGROUND_LIMIT_MS / 60_000
-      const jobs = runningJobs(this.host.context, sessionId, left).map(job => job.name)
+      const jobs = (await this.environmentCall(current, 'jobs-list', { except: [...left ?? []] },
+        async () => runningJobs(this.host.context, sessionId, left))).map(job => job.name)
       if (jobs.length) {
-        void this.background(killJobs(this.host.context, sessionId, 'The job ran past its limit', left))
+        void this.background(this.environmentCall(current, 'jobs-kill', { reason: 'The job ran past its limit', except: [...left ?? []] },
+          () => killJobs(this.host.context, sessionId, 'The job ran past its limit', left)))
         const note = `Your background jobs ran ${minutes} minutes after your turn ended and were killed: ${jobs.join(', ')}.`
         void this.background(this.host.sessions.prompt(sessionId, `killed:${jobs.join(',')}`, note, { inject: 'Background jobs killed' }))
       }

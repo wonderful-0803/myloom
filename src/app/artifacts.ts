@@ -1,6 +1,7 @@
 /** Immutable, owner-scoped report revisions. Source access is checked again on every read and publication. */
 import { createHash } from 'node:crypto'
 import { openSync, closeSync, fstatSync, readFileSync, realpathSync, constants } from 'node:fs'
+import { executionTarget, ExecutionUnavailable } from '../execution/port.ts'
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { key, latestReport, type Ticket, type Trigger } from '../core/index.ts'
 import { delegationMatches, settingsPolicy } from '../policy.ts'
@@ -114,6 +115,7 @@ export class Artifacts {
   }
   /** Accept only an explicit text report in this task's real workspace; never follow a symlink or scan other files. */
   readReportFile(ticket: Ticket, path: string): { body: string; filename: string } {
+    if (executionTarget(ticket).kind !== 'local') throw new ExecutionUnavailable('Runner artifact transfer is not configured; local file access is forbidden')
     if (!ticket.execution?.directory || isAbsolute(path) || path.includes('\\') || path.split('/').some(part => part === '..' || part.startsWith('.'))
       || !['.md', '.txt'].includes(extname(path).toLowerCase())) throw new Error('Report file must be a relative .md or .txt file inside this task workspace')
     const root = realpathSync(ticket.execution.directory), target = resolve(root, path), resolved = realpathSync(target)

@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Store } from './store.ts'
 import { KV } from '../kv.ts'
+import { ExecutionOutcomeUnknown } from '../execution/port.ts'
 
 export type ControlMode = 'agent' | 'pausing' | 'paused' | 'taking_over' | 'human'
 export interface ControlOperation { id: string; name: string; startedAt: string; status: 'running' | 'unknown' }
@@ -43,7 +44,7 @@ export class TaskControls {
     try { return await work(aborter.signal) }
     catch (error) {
       // Cancelling a client cannot prove that a remote write did not commit. Keep its lease for operator review.
-      uncertain = aborter.signal.aborted
+      uncertain = aborter.signal.aborted || error instanceof ExecutionOutcomeUnknown
       throw error
     }
     finally {
@@ -51,9 +52,10 @@ export class TaskControls {
       if (!active.size) this.aborters.delete(id)
       if (!this.closed) {
         const current = this.view(id)
-        this.save(id, uncertain ? { ...current, detail: 'Check actual effects of operations whose result was lost during cancellation',
+        this.save(id, uncertain ? { ...current, detail: 'Check actual effects of operations whose result could not be confirmed',
           operations: current.operations.map(item => item.id === operation.id ? { ...item, status: 'unknown' } : item) }
           : { ...current, operations: current.operations.filter(item => item.id !== operation.id) })
+        if (uncertain && current.mode === 'agent') this.change(id, 'pause', current.revision)
         this.settle(id)
       }
     }

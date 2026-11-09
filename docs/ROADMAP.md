@@ -138,7 +138,9 @@
 
 2026-11-04 用户明确要求通过 ngrok 访问当前 Loom，先提供密码保护入口，随后按“取消账号密码、给领导看效果”的要求改为免登录只读展示。仅允许 Loom 页面和读取 API，禁止写操作、原始 Codex 历史及会话选项，校验浏览器来源后适配本机 Host／Origin，不开放原生 Harness、通用管理接口或远程执行端。公开链接允许访问者查看现有任务、事件及报告；本机原入口的完整操作、本机执行和飞书范围不变。关闭独立 `loom-ngrok` 后台会话即可撤销入口。实际外网验收见 `PERSONAL_ACCEPTANCE.md`，不据此勾选正式跨设备身份、云端执行或多人部署。
 
+- [x] 抽出本机执行接口：任务／Session／轮次／目标／控制版本绑定，准备、原生工具／子 Agent、后台作业和停止确认统一经过端口；Runner 与错误目标禁止本机回退，unknown 保留并暂停。实现 `src/execution/port.ts`、`runtime.ts`、`sessions.ts`、`executor/dsh.ts`、`task-control.ts`，专项证据 `tests/execution-port.spec.ts`；此项仅为执行边界，不代表远程执行和外部状态已完成。
 - [ ] 云端计算、持久状态和设备执行环境分别定义权限及生命周期。
+  - 2026-11-09 已按现有代码整理 [Loom 状态外置](work-packages/LOOM_STATE.md)、[DSH 状态外置](work-packages/DSH_STATE.md)、[网关与 Runner](work-packages/GATEWAY_RUNNER.md) 的接口、依赖、实施步骤、迁移及故障验收；[共同交接说明](work-packages/README.md) 记录已接入的执行端口与未完成边界。文档不是三个工作包已经实现的证据。
 - [ ] 远程设备执行端具有设备身份认证、连接保护、命令范围、撤销和执行记录。
 - [ ] 设备离线时保留任务状态，清楚说明依赖设备的工作正在等待，防止重连后重复执行。
 - [ ] 评估服务端或某台设备被攻破时的影响范围，避免一处失陷直接获得全部设备权限。

@@ -37,6 +37,7 @@ import { pullEndNotices } from '../sources/github-pull.ts'
 import { HealthBoard } from '../infra/health.ts'
 import { Outbox } from './outbox.ts'
 import { TaskControls } from './task-control.ts'
+import { LocalExecutionPort, type ExecutionPort } from '../execution/port.ts'
 import { TaskProgress } from './task-progress.ts'
 import { ResultDelivery } from './result-delivery.ts'
 import { CodexDaily } from './codex-daily.ts'
@@ -84,6 +85,7 @@ export class Runtime extends Service implements SourceHost {
   readonly assessor: MasterAssessor
   readonly outbox: Outbox
   readonly controls: TaskControls
+  readonly execution: ExecutionPort
   readonly progress: TaskProgress
   readonly resultDelivery: ResultDelivery
   readonly codexHistory: CodexHistory
@@ -111,8 +113,9 @@ export class Runtime extends Service implements SourceHost {
   private readonly toolHost: MainToolsHost & ExecutorToolsHost
   /** Non-zero while a main-Session tool is executing an Engine command, suppressing self-triggered domain event notices. */
   private quiet = 0
-  constructor(ctx: Context, readonly machine: Machine, restart: () => void) {
+  constructor(ctx: Context, readonly machine: Machine, restart: () => void, execution: ExecutionPort = new LocalExecutionPort()) {
     super(ctx, 'orchestrator')
+    this.execution = execution
     const runtime = this
     // Lock the state directory before opening the database so another process cannot migrate or write concurrently.
     mkdirSync(machine.stateDir, { recursive: true, mode: 0o700 })
@@ -167,7 +170,7 @@ export class Runtime extends Service implements SourceHost {
         canReadTrigger: trigger => trigger.source !== 'codex-daily' || artifacts.sourceAllowed(trigger, trigger.actor.id),
         canReadTicket: ticket => ticket.mandate.actor.source !== 'codex-daily' || artifacts.canReadContext(ticket, ticket.mandate.actor.id) }
       const sessions = this.sessions = new Sessions({ context: ctx, store, prompts, effects, health: board.claim('models'), masterId,
-        lifetime: this.lifetime, controls,
+        lifetime: this.lifetime, controls, execution,
         closing: () => this.closing(), environment,
         tools: (agent, ticket) => ticket ? executorTools(this.toolHost, ticket) : mainTools(this.toolHost, agent) })
       const revalidateControls = () => {
@@ -180,7 +183,7 @@ export class Runtime extends Service implements SourceHost {
       this.settings = new Settings({ store, sources, engine: { policyChanged: (...args) => this.engine.policyChanged(...args) }, revalidateControls, health: board, context: ctx, lifetime: this.lifetime, sessions,
         sourceHost: this, setup, requestPass: () => { this.passes.request() } })
       this.executor = new DshExecutor({ context: ctx, get engine() { return runtime.engine }, store, effects, health: board.claim('worker'), machine,
-        lifetime: this.lifetime, controls, sessions, closing: () => this.closing(), paused: () => this.paused(), environment, sourceLink: link,
+        lifetime: this.lifetime, controls, sessions, execution, closing: () => this.closing(), paused: () => this.paused(), environment, sourceLink: link,
         repliedTo: trigger => repliedTo({ store, sources }, trigger) })
       this.assessor = new MasterAssessor({ get engine() { return runtime.engine }, commands, get deployment() { return setup.deployment }, effects,
         settings: () => store.settings(), paused: () => this.paused(), threadContext: trigger => sources.threadContext(trigger),

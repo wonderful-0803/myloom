@@ -312,7 +312,13 @@ export interface Ticket {
  * Thread closed; the ticket then ends unless its work has not finished (see `Tickets.unfinished`).
  */
 export interface Follow { thread: string; own: boolean; closed?: { at: string; outcome: 'merged' | 'closed' } }
-export interface Execution { name: string; directory: string; assignment: string }
+/** Chosen by trusted scheduling code, never by source text or tool arguments. Runner targets are reserved, not enabled. */
+export type ExecutionTarget = { kind: 'local' } | { kind: 'runner'; environmentId: string; workspaceId: string }
+export interface Execution {
+  name: string; directory: string; assignment: string
+  /** Absent on older records: explicitly interpreted as local execution. */
+  target?: ExecutionTarget
+}
 
 /** Whether a ticket is open: it has not ended. */
 export const liveTicket = (ticket: Pick<Ticket, 'ended'>): boolean => !ticket.ended
