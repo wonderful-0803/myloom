@@ -11,6 +11,8 @@ const Input = z.object({
   owner: z.string().regex(/^ou_[A-Za-z0-9]+$/), ownerName: z.string().max(100).default('本人'),
   chats: z.array(z.object({ chatId: z.string().regex(/^oc_[A-Za-z0-9]+$/), name: z.string().max(60), listen: z.enum(['mentions', 'all']) }).strict()).max(3),
   directMessages: z.boolean(), mode: z.enum(['observe', 'auto']), model: z.string().trim().min(1).max(200),
+  /** Team workspaces receive group @-mentions the gateway routed to them; left out, desktop instances keep `none` and their recorded input unchanged. */
+  otherChats: z.enum(['none', 'mentions']).optional(),
 }).strict()
 export type PersonalSetupInput = z.input<typeof Input>
 export function initializePersonalSettings(input: PersonalSetupInput): void {
@@ -36,7 +38,7 @@ function writePersonalSettings(input: PersonalSetupInput, reconfigure: boolean):
     if (existing && (!reconfigure || !existsSync(marker))) throw new Error('Existing assistant state is never replaced')
     if (existing) Input.parse(JSON.parse(readFileSync(marker, 'utf8')))
     const feishu = feishuKind.schema.parse({ cli: value.botCli, ownerOnly: true, directMessages: value.directMessages,
-      chats: value.chats, otherChats: 'none', cardsEnabled: false, draftsEnabled: false, mailCli: '', smtpCli: '' })
+      chats: value.chats, otherChats: value.otherChats ?? 'none', cardsEnabled: false, draftsEnabled: false, mailCli: '', smtpCli: '' })
     const settings = SettingsSchema.parse({ paused: false, sources: { github: { enabled: false, config: {} }, feishu: { enabled: true, config: feishu } },
       policy: { sources: { feishu: { allowed: [{ id: value.owner, name: value.ownerName }], syncChat: '', bots: [] } }, rules: [
         { id: 'office-summary', name: '工作总结与纪要', enabled: true, instruction: 'When the authorized owner asks to summarize supplied records or an explicitly scoped discussion, prepare a source-backed report for the specified period. Establish the source scope and deliverable. Keep preparation silent. Do not edit source documents or contact a new audience.' },

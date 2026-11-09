@@ -302,6 +302,13 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sync/feishu-config.ts` | Explicit desktop-owned user-profile preparation using only the existing app's file reference, plus safe setup diagnostics |
 | `src/sync/feishu-cloud.ts` | Owner-bound private Drive log, immutable batch hashes, reconstruction, receipts, revocation and project cleanup |
 | `src/sync/feishu.ts` | Independent Feishu connector lifecycle and private device-code authorization; reuses project/AI grants and capture |
+| `src/team/store.ts` | Team gateway prototype's own local SQLite: workspaces keyed by `union_id` with hashed tokens, seen events, routed inbox with acknowledgement, send decisions and an audit trail without message text |
+| `src/team/feishu.ts` | Raw `im.message.receive_v1` schema and its compact workspace form, the gateway's narrow Feishu port, and the in-memory simulated Feishu |
+| `src/team/gateway.ts` | Admission (tenant, `union_id`, addressing, allowlist, daily limit), first-contact workspace creation, routing, and the only `lark-cli` surface a workspace has: group results private unless explicitly requested, reads limited to the owner's chats |
+| `src/team/server.ts` | Loopback HTTP for workspace event streams and CLI calls (per-workspace token) and admin/simulation endpoints (admin token) |
+| `src/team/shim.ts` | The `lark-cli` stand-in each workspace runs, holding no Feishu credentials and forwarding every call to the gateway |
+| `src/team/workspaces.ts` | Prototype runtime: one DSH per workspace with its own home, state, port and model key in the environment only; not an isolation boundary |
+| `src/team/main.ts` | Team gateway prototype entry with simulated Feishu and an optional process runtime |
 | `scripts/sync-local.mjs` | Linux loopback hub bootstrap with private credentials and state; operator steps in `docs/DEVICE_SYNC_LINUX_ACCEPTANCE.md` |
 | `scripts/smoke-sync-local.mjs` | Actual Linux hub startup, permissions, persistent restart and symlink rejection using disposable data |
 | `loom/src/client/live/DeviceSync.tsx` | Default Feishu login/QR, directory consent, project grants and cloud MCP; self-hosted controls remain under collapsed Advanced settings marked pending verification |
@@ -445,6 +452,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/device-sync.spec.ts` | Real HTTP/persistent two-device round trip with source offline, hub restart, idempotence, project isolation, device revocation, plan branches, AI grants and in-flight withdrawal |
 | `tests/device-sync-api.spec.ts` | Runtime owner routing, disabled defaults, MCP configuration and rejection of unsupported or impersonating requests |
 | `tests/feishu-sync.spec.ts` | Two synthetic Drive connectors with persisted stores, offline source, plan continuity, retry receipts, identity and revocation checks |
+| `tests/team-gateway.spec.ts` | Team gateway prototype: per-`union_id` workspaces, admission and quota, redelivery, private-by-default group results, refused sends/reads/commands across workspaces, and DSH's own bot check plus event stream through the stand-in CLI |
 | `tests/feishu-drive.spec.ts` | Actual CLI adapter command contracts, user-only envelopes, private relative file transfers and authorization host checks |
 | `tests/feishu-config.spec.ts` | Fresh desktop profile preparation, unchanged strict bot identity, owner/app binding, unknown file and symlink refusal |
 | `loom/src/client/live/DeviceSync.test.tsx` | Pairing defaults, no unsolicited source reads, explicit collection consent and independent AI access controls |
