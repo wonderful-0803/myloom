@@ -287,7 +287,8 @@ export class Gateway {
         return json({ message_id: id })
       }
     }
-    const id = replyTo !== undefined ? await feishu.reply(replyTo, out, key, options.has('--reply-in-thread')) : await feishu.sendToChat(chat.chatId, out, key)
+    // In a direct chat a reply is sent as a plain new message, never quoted or opened as a topic under the person's message.
+    const id = replyTo !== undefined && chat.chatType === 'group' ? await feishu.reply(replyTo, out, key, options.has('--reply-in-thread')) : await feishu.sendToChat(chat.chatId, out, key)
     record('sent', chat.chatType === 'group' ? 'public_request' : 'direct', chat.chatType === 'group' ? 'group' : 'direct', id)
     return json({ message_id: id })
   }

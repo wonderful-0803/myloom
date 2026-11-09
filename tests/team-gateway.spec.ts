@@ -115,14 +115,15 @@ describe('sends and reads a workspace may make', () => {
     expect(JSON.parse(await run('api', 'GET', '/open-apis/bot/v3/info', '--as', 'bot', '--format', 'ndjson'))).toEqual({ bot: { open_id: BOT.openId, app_name: BOT.name } })
   })
 
-  it('replies in a direct chat as asked and sends each idempotency key once', async () => {
+  it('answers a reply in a direct chat as a plain new message, never in a topic, and sends each idempotency key once', async () => {
     const { feishu, gateway, deliver, ws } = setup()
     const request = event(alice, '周报', dm(alice)); await deliver(request)
-    const first = await gateway.cli(ws(alice), reply(request.event.message.message_id, '周报好了', 'k1', false))
+    const first = await gateway.cli(ws(alice), reply(request.event.message.message_id, '周报好了', 'k1', true))
     const again = await gateway.cli(ws(alice), reply(request.event.message.message_id, '周报好了（重试）', 'k1', false))
     expect(JSON.parse(first.stdout)).toEqual({ ok: true, data: { message_id: expect.stringMatching(/^om_sim/) } })
     expect(again.stdout).toBe(first.stdout)
-    expect(feishu.sent.filter(item => item.to.replyTo === request.event.message.message_id)).toHaveLength(1)
+    expect(feishu.sent.filter(item => item.to.replyTo)).toHaveLength(0)
+    expect(feishu.sent.filter(item => item.to.chatId === dm(alice).id)).toEqual([expect.objectContaining({ text: '周报好了', key: 'k1' })])
   })
 
   it('answers a group request privately by default and posts to the group only when the request asks for it', async () => {
@@ -212,7 +213,7 @@ describe('gateway server and the workspace CLI', () => {
       consumer.stdin.end(); consumer.kill('SIGTERM')
       const { stdout } = await exec(cli, ['im', '+messages-reply', '--message-id', request.event.message.message_id, '--text', '你好呀', '--idempotency-key', 'hello', '--as', 'bot', '--format', 'json'])
       expect(JSON.parse(stdout)).toMatchObject({ ok: true, data: { message_id: expect.any(String) } })
-      expect(feishu.sent.at(-1)).toMatchObject({ to: { replyTo: request.event.message.message_id }, text: '你好呀' })
+      expect(feishu.sent.at(-1)).toMatchObject({ to: { chatId: dm(alice).id }, text: '你好呀' })
       await expect(exec(cli, ['im', '+messages-send', '--user-id', bob.open, '--text', 'x', '--as', 'bot', '--format', 'json'])).rejects.toMatchObject({ code: 1 })
       expect(id).toBe(store.byUnion(alice.union)!.id)
     } finally { await new Promise(done => server.close(done)) }

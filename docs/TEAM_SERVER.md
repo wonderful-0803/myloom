@@ -252,6 +252,10 @@ LOOM_TEAM_ALIASES=<机器人别名> pnpm team:gateway
 - 每次发送卡片记入网关发送记录和审计（`menu_board`，只记 event_key 和视图）。模拟模式新增 `POST /sim/menu`。
 - `tests/team-gateway.spec.ts` 新增 4 项：只读读取和分组、只发给点击者且只含本人数据并去重、租户/白名单/无工作区、发送失败可重试；`LarkFeishu.sendCard` 使用 `--msg-type interactive`。
 
+### 私聊回复方式（2026-11-09）
+
+DSH 回复飞书消息时一律用 `+messages-reply --reply-in-thread`，私聊里会在用户消息下开一个话题。按用户要求，网关把私聊里的回复改为在该私聊中直接发一条新消息（`Gateway.send`，`src/team/gateway.ts`），不引用、不开话题；幂等键不变。群聊中明确要求公开的回复仍按原方式回复到原消息。`tests/team-gateway.spec.ts` 相应断言已改。
+
 ### 与设计的差距（仍未完成）
 
 - 真实飞书只接了消息和菜单事件；卡片回调、群成员变化等事件未接，工作区以 `open_id` 而非 `union_id` 为键，也没有租户校验（由白名单代替）。
