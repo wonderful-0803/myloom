@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto'
 import { CompactMessageEventSchema, incomingFromCompact, incomingFromRaw, messageText, RawMessageEventSchema, type FeishuPort, type HistoryMessage, type Incoming, type Outgoing } from './feishu.ts'
+import { board, boardCard, boardFocus, MenuEventSchema, type BoardTicket } from './board.ts'
 import type { TeamStore, Workspace } from './store.ts'
 
 /** Starts (or wakes) a workspace's assistant; `issueToken` is called only when the workspace needs a new access token. */
@@ -17,11 +18,14 @@ export interface GatewayOptions {
   aliases?: string[]
   /** Optional allowlist; when it rejects a person, no workspace is created. Required for CLI events, which carry no tenant. */
   admit?: (person: { openId: string; unionId?: string }) => boolean
+  /** A workspace's tasks for the menu board, read-only; without it the board shows none. */
+  tickets?: (workspace: Workspace) => BoardTicket[]
   /** Messages routed per workspace per day (Asia/Shanghai) before new ones are declined. */
   dailyLimit?: number
   now?: () => Date
 }
 export type IngestOutcome = { outcome: 'routed'; workspaceId: string; created: boolean } | { outcome: 'duplicate' | 'ignored' | 'rejected'; reason: string; workspaceId?: string }
+export type MenuOutcome = { outcome: 'board'; workspaceId: string; focus: string } | { outcome: 'duplicate' | 'ignored' | 'rejected' | 'failed'; reason: string; workspaceId?: string }
 export interface CliResult { code: number; stdout: string; stderr: string }
 
 /**
@@ -129,6 +133,49 @@ export class Gateway {
       this.store.audit('runtime_failed', { error: String(error).slice(0, 300) }, workspace.id, this.now().toISOString())
     })
     return { outcome: 'routed', workspaceId: workspace.id, created }
+  }
+
+  /**
+   * Answers a click on the bot's menu (`application.bot.menu_v6`) with a private card of the clicker's own workspace. The
+   * clicker is the only possible reader: the card goes to their open_id and shows only the workspace keyed by it.
+   */
+  async menu(input: unknown): Promise<MenuOutcome> {
+    const parsed = MenuEventSchema.safeParse(input)
+    if (!parsed.success) return { outcome: 'rejected', reason: 'invalid_event' }
+    const event = parsed.data, openId = (event.operator_open_id ?? event.operator_id)!, at = this.now().toISOString()
+    const eventId = 'menu:' + (event.event_id ?? `${openId}:${event.event_key}:${event.menu_timestamp ?? event.timestamp ?? at}`)
+    if (!this.store.markSeen(eventId, 'received', at)) return { outcome: 'duplicate', reason: 'already_seen' }
+    const ignore = (reason: string, workspaceId?: string): MenuOutcome => {
+      this.store.setSeen(eventId, reason)
+      this.store.audit('menu_ignored', { reason }, workspaceId ?? null, at)
+      return { outcome: 'ignored', reason, ...workspaceId ? { workspaceId } : {} }
+    }
+    if (this.options.tenantKey && event.tenant_key !== this.options.tenantKey) return ignore('external_tenant')
+    if (this.options.admit && !this.options.admit({ openId, ...event.operator_union_id ? { unionId: event.operator_union_id } : {} })) return ignore('not_admitted')
+    const workspace = (event.operator_union_id ? this.store.byUnion(event.operator_union_id) : undefined) ?? this.store.byUnion('open:' + openId)
+    // Never trust the key alone: the workspace must also belong to this open_id.
+    if (workspace && workspace.openId !== openId) return ignore('owner_mismatch', workspace.id)
+    if (workspace?.status === 'disabled') return ignore('workspace_disabled', workspace.id)
+    const feishu = this.options.feishu
+    if (!workspace) {
+      await feishu.sendToUser(openId, { text: '你还没有工作区。先私聊我说一句话，我会为你开一个，之后再点菜单就能看到任务看板。' }, eventId).catch(() => {})
+      return ignore('no_workspace')
+    }
+    const focus = boardFocus(event.event_key), since = dayStart(this.now())
+    try {
+      const tickets = this.options.tickets?.(workspace) ?? []
+      const usage = { messages: this.store.routedSince(workspace.id, since), modelCalls: this.store.auditCount(workspace.id, 'model', since) }
+      const id = await feishu.sendCard(openId, boardCard(board(tickets, usage, this.now()), focus, this.now()), eventId)
+      this.store.recordSend({ workspaceId: workspace.id, key: eventId, decision: 'sent', reason: 'menu_board', target: 'user', messageId: id, at })
+      this.store.setSeen(eventId, 'board')
+      this.store.audit('menu_board', { focus, key: event.event_key.slice(0, 60) }, workspace.id, at)
+      return { outcome: 'board', workspaceId: workspace.id, focus }
+    } catch (error) {
+      // Let a later redelivery of the same click try again.
+      this.store.forgetSeen(eventId)
+      this.store.audit('menu_failed', { error: String(error).slice(0, 300) }, workspace.id, at)
+      return { outcome: 'failed', reason: String(error instanceof Error ? error.message : error).slice(0, 300), workspaceId: workspace.id }
+    }
   }
 
   /** Workspace event stream: events after `after` (acknowledging up to it), waiting up to `waitMs` for the next one. */

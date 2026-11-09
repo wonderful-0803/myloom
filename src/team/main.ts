@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { SimulatedFeishu, type FeishuPort } from './feishu.ts'
 import { Gateway, type WorkspaceRuntime } from './gateway.ts'
+import { readTickets } from './board.ts'
 import { consumeLark, larkBot, LarkFeishu, larkRunner } from './lark.ts'
 import { teamServer } from './server.ts'
 import { TeamStore } from './store.ts'
@@ -36,6 +37,8 @@ const process_ = env.LOOM_TEAM_RUNTIME ? new ProcessRuntime({ root: join(root, '
   basePort: Number(env.LOOM_TEAM_WORKSPACE_PORT ?? 3200), log, ...container ? { container } : {} }) : undefined
 const runtime: WorkspaceRuntime = process_ ?? { ensure: async () => {} }
 const gateway = new Gateway({ store, feishu, runtime, tenantKey: env.LOOM_TEAM_TENANT ?? '',
+  // The menu board reads each workspace's task database on the host, read-only.
+  tickets: workspace => readTickets(join(root, 'workspaces', workspace.id, 'state', 'orchestrator.sqlite')),
   aliases: (env.LOOM_TEAM_ALIASES ?? '').split(',').map(name => name.trim()).filter(Boolean),
   ...allowed.length ? { admit: (person: { openId: string }) => allowed.includes(person.openId) } : {},
   ...env.LOOM_TEAM_DAILY_LIMIT ? { dailyLimit: Number(env.LOOM_TEAM_DAILY_LIMIT) } : {} })
@@ -50,6 +53,11 @@ if (real) void consumeLark(cli, async line => {
   const outcome = await gateway.ingestCompact(line)
   log(`event ${outcome.outcome}${'reason' in outcome ? ` (${outcome.reason})` : ''}${outcome.workspaceId ? ` → ${outcome.workspaceId}` : ''}`)
 }, log, stopping.signal)
+// Clicks on the bot's menu (items set to "push event") answer with a private task board.
+if (real) void consumeLark(cli, async line => {
+  const outcome = await gateway.menu(line)
+  log(`menu ${outcome.outcome}${'reason' in outcome ? ` (${outcome.reason})` : ` ${outcome.focus}`}${outcome.workspaceId ? ` → ${outcome.workspaceId}` : ''}`)
+}, log, stopping.signal, 'application.bot.menu_v6')
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => {
   stopping.abort(); server.close(); bridgeServer?.close()
   void (process_?.stopAll() ?? Promise.resolve()).finally(() => { store.close(); process.exit(0) })

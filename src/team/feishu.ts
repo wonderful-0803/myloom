@@ -77,6 +77,8 @@ export interface Outgoing { text: string; file?: { name: string; bytes: number }
 export interface FeishuPort {
   readonly bot: { openId: string; appId: string; name: string; brand: 'feishu' | 'lark' }
   sendToUser(openId: string, message: Outgoing, key: string): Promise<string>
+  /** Sends an interactive card privately; only the gateway's own board uses it. */
+  sendCard(openId: string, card: Record<string, unknown>, key: string): Promise<string>
   sendToChat(chatId: string, message: Outgoing, key: string): Promise<string>
   reply(messageId: string, message: Outgoing, key: string, inThread: boolean): Promise<string>
   react(messageId: string, emoji: string): Promise<void>
@@ -88,7 +90,7 @@ export interface FeishuPort {
 
 /** In-memory Feishu for the prototype and tests: records what users said and every message the bot sent, with no network. */
 export class SimulatedFeishu implements FeishuPort {
-  readonly sent: { to: { userId?: string; chatId?: string; replyTo?: string }; text: string; file?: Outgoing['file']; key: string; messageId: string; inThread?: boolean }[] = []
+  readonly sent: { to: { userId?: string; chatId?: string; replyTo?: string }; text: string; file?: Outgoing['file']; card?: Record<string, unknown>; key: string; messageId: string; inThread?: boolean }[] = []
   readonly reactions: { messageId: string; emoji: string }[] = []
   private readonly log: HistoryMessage[] = []
   private readonly chats = new Map<string, { name: string; members: Map<string, string> }>()
@@ -121,6 +123,12 @@ export class SimulatedFeishu implements FeishuPort {
   }
   async sendToUser(openId: string, message: Outgoing, key: string): Promise<string> {
     return this.record({ userId: openId }, this.direct.get(openId) ?? `oc_simdm${openId.slice(3)}`, message, key)
+  }
+  async sendCard(openId: string, card: Record<string, unknown>, key: string): Promise<string> {
+    const id = this.record({ userId: openId }, this.direct.get(openId) ?? `oc_simdm${openId.slice(3)}`, { text: '' }, key)
+    const item = this.sent.find(entry => entry.messageId === id)!
+    item.card ??= card
+    return id
   }
   async sendToChat(chatId: string, message: Outgoing, key: string): Promise<string> { return this.record({ chatId }, chatId, message, key) }
   async reply(messageId: string, message: Outgoing, key: string, inThread: boolean): Promise<string> {

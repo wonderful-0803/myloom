@@ -93,6 +93,7 @@ export function teamServer(options: TeamServerOptions): Server {
         if (event?.event?.message) simulation.observe(event)
         return send(response, 200, await gateway.ingest(input))
       }
+      if (simulation && method === 'POST' && path === '/sim/menu') return send(response, 200, await gateway.menu(await body(request)))
       if (simulation && method === 'GET' && path === '/sim/sent') return send(response, 200, { sent: simulation.sent, reactions: simulation.reactions })
       throw new HttpError(404, 'not found')
     })().catch((error: unknown) => {

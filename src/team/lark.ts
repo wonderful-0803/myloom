@@ -50,6 +50,9 @@ export class LarkFeishu implements FeishuPort {
   sendToUser(openId: string, message: Outgoing, key: string): Promise<string> {
     return this.id(['im', '+messages-send', '--user-id', openId, ...body(message), '--idempotency-key', key])
   }
+  sendCard(openId: string, card: Record<string, unknown>, key: string): Promise<string> {
+    return this.id(['im', '+messages-send', '--user-id', openId, '--msg-type', 'interactive', '--content', JSON.stringify(card), '--idempotency-key', key])
+  }
   sendToChat(chatId: string, message: Outgoing, key: string): Promise<string> {
     return this.id(['im', '+messages-send', '--chat-id', chatId, ...body(message), '--idempotency-key', key])
   }
@@ -83,16 +86,16 @@ export class LarkFeishu implements FeishuPort {
   }
 }
 
-/** Streams the bot's message events into `receive` until `signal` aborts, restarting the consumer with backoff. */
-export async function consumeLark(cli: string, receive: (line: unknown) => Promise<unknown>, log: (line: string) => void, signal: AbortSignal): Promise<void> {
+/** Streams one kind of the bot's events (messages by default) into `receive` until `signal` aborts, restarting the consumer with backoff. */
+export async function consumeLark(cli: string, receive: (line: unknown) => Promise<unknown>, log: (line: string) => void, signal: AbortSignal, eventKey = 'im.message.receive_v1'): Promise<void> {
   let retry = 1000
   while (!signal.aborted) {
     const began = Date.now()
-    const child = spawn(cli, ['event', 'consume', 'im.message.receive_v1', '--as', 'bot'], { env: ENV, stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(cli, ['event', 'consume', eventKey, '--as', 'bot'], { env: ENV, stdio: ['pipe', 'pipe', 'pipe'] })
     const stop = () => { child.stdin.end(); child.kill('SIGTERM') }
     signal.addEventListener('abort', stop, { once: true })
     let chain = Promise.resolve()
-    createInterface({ input: child.stderr }).on('line', line => { if (/ready|error|WARN|drop/.test(line)) log(`feishu: ${line.slice(0, 300)}`) })
+    createInterface({ input: child.stderr }).on('line', line => { if (/ready|error|WARN|drop/.test(line)) log(`feishu ${eventKey}: ${line.slice(0, 300)}`) })
     createInterface({ input: child.stdout }).on('line', line => {
       chain = chain.then(async () => { await receive(JSON.parse(line)) }).catch(error => log(`feishu: event failed: ${String(error).slice(0, 300)}`))
     })
@@ -101,7 +104,7 @@ export async function consumeLark(cli: string, receive: (line: unknown) => Promi
     await chain
     if (signal.aborted) return
     retry = Date.now() - began > 60_000 ? 1000 : Math.min(retry * 2, 60_000)
-    log(`feishu: event consumer exited (${code}); restarting in ${retry / 1000}s`)
+    log(`feishu ${eventKey}: event consumer exited (${code}); restarting in ${retry / 1000}s`)
     await delay(retry, undefined, { signal }).catch(() => {})
   }
 }

@@ -43,6 +43,7 @@ export class TeamStore {
   markSeen(eventId: string, outcome: string, at: string): boolean {
     return this.db.prepare('INSERT OR IGNORE INTO seen VALUES (?,?,?)').run(eventId, outcome, at).changes === 1
   }
+  forgetSeen(eventId: string): void { this.db.prepare('DELETE FROM seen WHERE event_id=?').run(eventId) }
   setSeen(eventId: string, outcome: string): void { this.db.prepare('UPDATE seen SET outcome=? WHERE event_id=?').run(outcome, eventId) }
 
   /** Creates a workspace with a fresh access token and returns the token; only its hash is stored. */
@@ -107,6 +108,10 @@ export class TeamStore {
     return this.db.prepare('SELECT key FROM outbox WHERE workspace_id=? ORDER BY at').all(workspaceId).map(value => this.sent(workspaceId, String(value.key))!)
   }
   /** Audit details name IDs, decisions and reasons only, never message text or tokens. */
+  /** How many audit entries of `action` a workspace has since `since`. */
+  auditCount(workspaceId: string, action: string, since: string): number {
+    return (this.db.prepare('SELECT count(*) AS n FROM audit WHERE workspace_id=? AND action=? AND at>=?').get(workspaceId, action, since) as { n: number }).n
+  }
   audit(action: string, detail: Record<string, string | number | boolean>, workspaceId: string | null, at: string): void {
     this.db.prepare('INSERT INTO audit (at,workspace_id,action,detail) VALUES (?,?,?,?)').run(at, workspaceId, action, JSON.stringify(detail))
   }

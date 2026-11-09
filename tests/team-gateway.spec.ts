@@ -10,6 +10,7 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Config, machineOf, resolveFeishuBot } from '../src/deployment.ts'
 import { SimulatedFeishu, type RawMessageEvent } from '../src/team/feishu.ts'
+import { boardTicket, type BoardTicket } from '../src/team/board.ts'
 import { Gateway, isPublicRequest, type WorkspaceRuntime } from '../src/team/gateway.ts'
 import { teamServer } from '../src/team/server.ts'
 import { TeamStore, type Workspace } from '../src/team/store.ts'
@@ -31,7 +32,7 @@ const dm = (person: { open: string }) => ({ id: 'oc_dm' + person.open.slice(3), 
 const group = { id: 'oc_group', type: 'group' as const }
 const mention = [{ key: '@_user_1', name: '团队助手', id: { open_id: BOT.openId } }]
 
-function setup(options: { dailyLimit?: number; admit?: (person: { openId: string; unionId?: string }) => boolean } = {}) {
+function setup(options: { dailyLimit?: number; admit?: (person: { openId: string; unionId?: string }) => boolean; tickets?: (workspace: Workspace) => BoardTicket[] } = {}) {
   const store = new TeamStore(':memory:'), feishu = new SimulatedFeishu(BOT)
   feishu.defineChat(group.id, '项目群', [{ openId: alice.open, name: 'Alice' }, { openId: bob.open, name: 'Bob' }])
   const started: string[] = []
@@ -251,15 +252,88 @@ describe('real Feishu through the bot CLI', () => {
       expect(bot).toEqual({ openId: 'ou_bot', appId: 'cli_team', name: 'Shannon', brand: 'feishu' })
       const port = new LarkFeishu(bot, larkRunner(cli))
       expect(await port.sendToUser(alice.open, { text: '你好' }, 'k1')).toBe('om_out1')
+      expect(await port.sendCard(alice.open, { schema: '2.0' }, 'k3')).toBe('om_out1')
       await expect(port.reply('om_x', { text: '回复' }, 'k2', true)).rejects.toThrow('no permission (230027)')
       await port.react('om_x', 'OK')
       expect(await port.chatName(group.id)).toBe('项目群')
       expect(await port.messages([])).toEqual([])
       const log = (await import('node:fs')).readFileSync(calls, 'utf8')
       expect(log).toContain(`im +messages-send --user-id ${alice.open} --markdown 你好 --idempotency-key k1 --as bot --format json`)
+      expect(log).toContain(`im +messages-send --user-id ${alice.open} --msg-type interactive --content {"schema":"2.0"} --idempotency-key k3 --as bot --format json`)
       expect(log).toContain('im +messages-reply --message-id om_x --markdown 回复 --reply-in-thread --idempotency-key k2 --as bot --format json')
       expect(log).toContain('api POST /open-apis/im/v1/messages/om_x/reactions --data {"reaction_type":{"emoji_type":"OK"}} --as bot --format json')
     } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('menu board', () => {
+  const ticket = (id: string, title: string, extra: Record<string, unknown> = {}) => ({ id, title, createdAt: '2026-11-09T01:00:00Z', updatedAt: '2026-11-09T01:30:00Z',
+    assignments: [{ state: 'running', report: { state: 'progress', summary: '正在整理' } }], undelivered: [], ...extra })
+  const menuEvent = (person: { open: string; union?: string }, key: string, id: string, tenant = TENANT) =>
+    ({ event_id: id, event_key: key, operator_open_id: person.open, operator_id: person.open, ...person.union ? { operator_union_id: person.union } : {}, tenant_key: tenant, menu_timestamp: '1762653600000' })
+  const cardText = (card: unknown) => JSON.stringify(card)
+
+  it('reads a workspace\'s tasks read-only and sorts them into needs-you, open and recently ended', async () => {
+    const { readTickets, board } = await import('../src/team/board.ts')
+    const { DatabaseSync } = await import('node:sqlite')
+    const dir = mkdtempSync(join(tmpdir(), 'team-board-'))
+    try {
+      expect(readTickets(join(dir, 'missing.sqlite'))).toEqual([])
+      const path = join(dir, 'orchestrator.sqlite'), db = new DatabaseSync(path)
+      db.exec('CREATE TABLE ticket (id TEXT PRIMARY KEY, value TEXT NOT NULL)')
+      const insert = db.prepare('INSERT INTO ticket VALUES (?, ?)')
+      for (const value of [ticket('t1', '整理周报'), ticket('t2', '确认预算', { attention: { id: 'a', question: '预算上限是多少？' } }),
+        ticket('t3', '部署失败', { assignments: [{ state: 'ended', report: { state: 'failed', summary: '缺少权限' } }] }),
+        ticket('t4', '写会议纪要', { ended: { at: '2026-11-08T10:00:00Z', by: 'executor', outcome: 'completed' }, assignments: [{ state: 'ended', report: { state: 'ready', summary: '纪要已发送' } }] }),
+        ticket('t5', '很早的任务', { ended: { at: '2026-10-01T10:00:00Z', by: 'executor', outcome: 'completed' } })]) insert.run(value.id, JSON.stringify(value))
+      insert.run('broken', '{not json')
+      db.close()
+      const tickets = readTickets(path)
+      expect(tickets.map(item => [item.id, item.state])).toEqual([['t1', 'running'], ['t2', 'attention'], ['t3', 'failed'], ['t4', 'ended'], ['t5', 'ended']])
+      const value = board(tickets, { messages: 3, modelCalls: 9 }, new Date('2026-11-09T02:00:00Z'))
+      expect(value.needsYou.map(item => item.id).sort()).toEqual(['t2', 't3'])
+      expect(value.needsYou.find(item => item.id === 't2')!.note).toBe('预算上限是多少？')
+      expect(value.running.map(item => item.id)).toEqual(['t1'])
+      expect(value.recent.map(item => item.id)).toEqual(['t4'])
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  it('sends the clicker a private card of only their own workspace, once per click, with titles shown literally', async () => {
+    const own = new Map<string, ReturnType<typeof ticket>[]>()
+    const { store, feishu, gateway, deliver, ws } = setup({ tickets: workspace => (own.get(workspace.id) ?? []).map(item => boardTicket(item)!) })
+    await deliver(event(alice, '你好', dm(alice)))
+    await deliver(event(bob, '你好', dm(bob)))
+    own.set(ws(alice).id, [ticket('ta', 'Alice 的 **周报**')]).set(ws(bob).id, [ticket('tb', 'Bob 的方案')])
+    expect(await gateway.menu(menuEvent(alice, 'board', 'ev_menu1'))).toEqual({ outcome: 'board', workspaceId: ws(alice).id, focus: 'all' })
+    expect(await gateway.menu(menuEvent(alice, 'board', 'ev_menu1'))).toEqual({ outcome: 'duplicate', reason: 'already_seen' })
+    const cards = feishu.sent.filter(item => item.card)
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.to).toEqual({ userId: alice.open })
+    expect(cardText(cards[0]!.card)).toContain('Alice 的 &#42;&#42;周报&#42;&#42;')
+    expect(cardText(cards[0]!.card)).not.toContain('Bob')
+    expect(cardText(cards[0]!.card)).toContain('今日 1 条消息')
+    expect(await gateway.menu(menuEvent(alice, 'board.recent', 'ev_menu2'))).toMatchObject({ outcome: 'board', focus: 'recent' })
+    expect(cardText(feishu.sent.at(-1)!.card)).not.toContain('进行中')
+    expect(store.auditTrail().filter(item => item.action === 'menu_board')).toHaveLength(2)
+  })
+
+  it('ignores other tenants and people outside the allowlist, and invites admitted people without a workspace to start one', async () => {
+    const { feishu, gateway } = setup({ admit: person => person.openId !== 'ou_mallory' })
+    expect(await gateway.menu(menuEvent(alice, 'board', 'ev_t', 'tenant_other'))).toMatchObject({ outcome: 'ignored', reason: 'external_tenant' })
+    expect(await gateway.menu(menuEvent({ open: 'ou_mallory' }, 'board', 'ev_m'))).toMatchObject({ outcome: 'ignored', reason: 'not_admitted' })
+    expect(await gateway.menu(menuEvent(alice, 'board', 'ev_a'))).toMatchObject({ outcome: 'ignored', reason: 'no_workspace' })
+    expect(await gateway.menu({ event_key: 'board' })).toMatchObject({ outcome: 'rejected' })
+    expect(feishu.sent.map(item => [item.to.userId, item.card ? 'card' : item.text.slice(0, 8)])).toEqual([[alice.open, '你还没有工作区。']])
+  })
+
+  it('lets a click whose card failed to send be retried', async () => {
+    const { feishu, gateway, deliver } = setup()
+    await deliver(event(alice, '你好', dm(alice)))
+    const original = feishu.sendCard.bind(feishu)
+    feishu.sendCard = async () => { throw new Error('card rejected') }
+    expect(await gateway.menu(menuEvent(alice, 'board', 'ev_r'))).toMatchObject({ outcome: 'failed', reason: 'card rejected' })
+    feishu.sendCard = original
+    expect(await gateway.menu(menuEvent(alice, 'board', 'ev_r'))).toMatchObject({ outcome: 'board' })
   })
 })
 

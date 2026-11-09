@@ -309,6 +309,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/team/shim.ts` | The `lark-cli` stand-in each workspace runs, holding no Feishu credentials and forwarding every call to the gateway |
 | `src/team/workspaces.ts` | One DSH per workspace with its own home, state and port, as a plain process or in its own locked-down container (`dockerRunArgs`) that sees only its directory and reaches the model through the gateway proxy |
 | `src/team/lark.ts` | Real Feishu port through the bot's strict-bot `lark-cli`: sends, reactions, reads, bot identity and the restarting event consumer |
+| `src/team/board.ts` | Menu board: the `application.bot.menu_v6` schema, a read-only reader of a workspace's `orchestrator.sqlite` tickets, their grouping (needs you, open, recently ended) and the private interactive card |
 | `src/team/main.ts` | Team gateway prototype entry: simulated or real Feishu (real requires an open_id allowlist) and an optional process runtime |
 | `scripts/sync-local.mjs` | Linux loopback hub bootstrap with private credentials and state; operator steps in `docs/DEVICE_SYNC_LINUX_ACCEPTANCE.md` |
 | `scripts/smoke-sync-local.mjs` | Actual Linux hub startup, permissions, persistent restart and symlink rejection using disposable data |
@@ -453,7 +454,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/device-sync.spec.ts` | Real HTTP/persistent two-device round trip with source offline, hub restart, idempotence, project isolation, device revocation, plan branches, AI grants and in-flight withdrawal |
 | `tests/device-sync-api.spec.ts` | Runtime owner routing, disabled defaults, MCP configuration and rejection of unsupported or impersonating requests |
 | `tests/feishu-sync.spec.ts` | Two synthetic Drive connectors with persisted stores, offline source, plan continuity, retry receipts, identity and revocation checks |
-| `tests/team-gateway.spec.ts` | Team gateway prototype: per-`union_id` workspaces, admission and quota, redelivery, private-by-default group results, refused sends/reads/commands across workspaces, and DSH's own bot check plus event stream through the stand-in CLI |
+| `tests/team-gateway.spec.ts` | Team gateway prototype: per-`union_id` workspaces, admission and quota, redelivery, private-by-default group results, refused sends/reads/commands across workspaces, DSH's own bot check plus event stream through the stand-in CLI, and the menu board (read-only grouping, a card only to the clicker about their own workspace, tenant/allowlist checks, retry after a failed send) |
 | `tests/feishu-drive.spec.ts` | Actual CLI adapter command contracts, user-only envelopes, private relative file transfers and authorization host checks |
 | `tests/feishu-config.spec.ts` | Fresh desktop profile preparation, unchanged strict bot identity, owner/app binding, unknown file and symlink refusal |
 | `loom/src/client/live/DeviceSync.test.tsx` | Pairing defaults, no unsolicited source reads, explicit collection consent and independent AI access controls |
