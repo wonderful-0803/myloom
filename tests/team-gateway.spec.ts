@@ -31,7 +31,7 @@ const dm = (person: { open: string }) => ({ id: 'oc_dm' + person.open.slice(3), 
 const group = { id: 'oc_group', type: 'group' as const }
 const mention = [{ key: '@_user_1', name: '团队助手', id: { open_id: BOT.openId } }]
 
-function setup(options: { dailyLimit?: number; admit?: (unionId: string) => boolean } = {}) {
+function setup(options: { dailyLimit?: number; admit?: (person: { openId: string; unionId?: string }) => boolean } = {}) {
   const store = new TeamStore(':memory:'), feishu = new SimulatedFeishu(BOT)
   feishu.defineChat(group.id, '项目群', [{ openId: alice.open, name: 'Alice' }, { openId: bob.open, name: 'Bob' }])
   const started: string[] = []
@@ -60,7 +60,7 @@ describe('admission and routing', () => {
   })
 
   it('ignores other tenants, missing union_id, bots, unaddressed group chatter and people the allowlist rejects', async () => {
-    const { store, deliver } = setup({ admit: unionId => unionId !== 'on_carol' })
+    const { store, deliver } = setup({ admit: person => person.unionId !== 'on_carol' })
     expect(await deliver(event(alice, 'hi', dm(alice), { tenant: 'tenant_other' }))).toEqual({ outcome: 'ignored', reason: 'external_tenant' })
     expect(await deliver(event({ open: 'ou_nounion' }, 'hi', dm({ open: 'ou_nounion' })))).toEqual({ outcome: 'ignored', reason: 'no_union_id' })
     expect(await deliver(event(alice, 'hi', dm(alice), { senderType: 'app' }))).toEqual({ outcome: 'ignored', reason: 'not_a_user' })
@@ -216,4 +216,95 @@ describe('gateway server and the workspace CLI', () => {
       expect(id).toBe(store.byUnion(alice.union)!.id)
     } finally { await new Promise(done => server.close(done)) }
   }, 30_000)
+})
+
+describe('real Feishu through the bot CLI', () => {
+  const compact = (open: string, text: string, chat: { id: string; type: 'p2p' | 'group' }, id: string, mentions: { id: string; key: string; name: string }[] = []) =>
+    ({ message_id: id, chat_id: chat.id, chat_type: chat.type, sender_id: open, sender_type: 'user', content: text, create_time: String(Date.now()), mentions, event_id: 'ev_' + id })
+
+  it('keys CLI events by open_id and refuses them entirely unless an allowlist keeps external contacts out', async () => {
+    const open = setup()
+    expect(await open.gateway.ingestCompact(compact(alice.open, 'hi', dm(alice), 'om_c1'))).toEqual({ outcome: 'ignored', reason: 'tenant_unknown' })
+    const listed = setup({ admit: person => person.openId === alice.open })
+    expect(await listed.gateway.ingestCompact(compact(alice.open, 'hi', dm(alice), 'om_c2'))).toMatchObject({ outcome: 'routed', created: true })
+    expect(await listed.gateway.ingestCompact(compact(alice.open, 'hi', dm(alice), 'om_c2'))).toMatchObject({ outcome: 'duplicate' })
+    expect(await listed.gateway.ingestCompact(compact(bob.open, 'Shannon hi', group, 'om_c3'))).toEqual({ outcome: 'ignored', reason: 'not_admitted' })
+    expect(listed.store.byUnion('open:' + alice.open)).toMatchObject({ openId: alice.open, tenantKey: '' })
+    expect(await listed.gateway.ingestCompact({ message_id: 'bad' })).toEqual({ outcome: 'rejected', reason: 'invalid_event' })
+  })
+
+  it('drives sends, reactions and reads through the bot CLI with strict bot identity and JSON output', async () => {
+    const { LarkFeishu, larkRunner, larkBot } = await import('../src/team/lark.ts')
+    const dir = mkdtempSync(join(tmpdir(), 'team-lark-'))
+    try {
+      const calls = join(dir, 'calls.log'), cli = join(dir, 'lark-cli')
+      writeFileSync(cli, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\ncase "$1 $2" in\n`
+        + `"auth status") echo '{"appId":"cli_team","brand":"feishu","identities":{"bot":{"status":"ready","verified":true}}}';;\n`
+        + `"config strict-mode") echo 'strict-mode: bot';;\n`
+        + `"api GET") case "$3" in /open-apis/bot/v3/info) echo '{"bot":{"open_id":"ou_bot","app_name":"Shannon"}}';; /open-apis/im/v1/chats/*) echo '{"ok":true,"data":{"name":"项目群"}}';; *) echo '{"ok":true,"data":{"items":[]}}';; esac;;\n`
+        + `"api POST") echo '{"ok":true,"data":{}}';;\n`
+        + `"im +messages-send") echo '{"ok":true,"data":{"message_id":"om_out1"}}';;\n`
+        + `"im +messages-reply") echo '{"ok":false,"error":{"message":"no permission","code":230027}}'; exit 1;;\n`
+        + `*) echo '{"ok":true,"data":{}}';;\nesac\n`)
+      chmodSync(cli, 0o700)
+      const bot = await larkBot(cli)
+      expect(bot).toEqual({ openId: 'ou_bot', appId: 'cli_team', name: 'Shannon', brand: 'feishu' })
+      const port = new LarkFeishu(bot, larkRunner(cli))
+      expect(await port.sendToUser(alice.open, { text: '你好' }, 'k1')).toBe('om_out1')
+      await expect(port.reply('om_x', { text: '回复' }, 'k2', true)).rejects.toThrow('no permission (230027)')
+      await port.react('om_x', 'OK')
+      expect(await port.chatName(group.id)).toBe('项目群')
+      expect(await port.messages([])).toEqual([])
+      const log = (await import('node:fs')).readFileSync(calls, 'utf8')
+      expect(log).toContain(`im +messages-send --user-id ${alice.open} --markdown 你好 --idempotency-key k1 --as bot --format json`)
+      expect(log).toContain('im +messages-reply --message-id om_x --markdown 回复 --reply-in-thread --idempotency-key k2 --as bot --format json')
+      expect(log).toContain('api POST /open-apis/im/v1/messages/om_x/reactions --data {"reaction_type":{"emoji_type":"OK"}} --as bot --format json')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('container isolation', () => {
+  it('runs a workspace with no capabilities, a read-only root, limits, read-only host paths and only its own directory writable', async () => {
+    const { dockerRunArgs } = await import('../src/team/workspaces.ts')
+    const args = dockerRunArgs({ image: 'loom-workspace:0.1', mounts: ['/opt/dsh', '/opt/loom'], dshEntry: '/opt/dsh/bin.js', gatewayURL: 'http://172.17.0.1:7431', user: '1001:1001' },
+      { name: 'loom-ws_a', directory: '/data/workspaces/ws_a', envFile: '/data/workspaces/ws_a/.container.env', command: ['node', '/opt/dsh/bin.js'] })
+    const pairs = (flag: string) => args.flatMap((item, index) => item === flag ? [args[index + 1]] : [])
+    expect(pairs('--cap-drop')).toEqual(['ALL'])
+    expect(pairs('--security-opt')).toEqual(['no-new-privileges'])
+    expect(args).toContain('--read-only')
+    expect(pairs('-v')).toEqual(['/opt/dsh:/opt/dsh:ro', '/opt/loom:/opt/loom:ro', '/data/workspaces/ws_a:/data/workspaces/ws_a:rw'])
+    expect(pairs('--user')).toEqual(['1001:1001'])
+    expect(pairs('--memory').length && pairs('--pids-limit').length && pairs('--cpus').length).toBeTruthy()
+    expect(args.slice(-3)).toEqual(['loom-workspace:0.1', 'node', '/opt/dsh/bin.js'])
+  })
+
+  it('proxies model calls with the real key for a valid workspace token, and serves only workspace endpoints on the bridge listener', async () => {
+    const { store, feishu, gateway } = setup()
+    const tokens: string[] = []
+    const live = new Gateway({ store, feishu, runtime: { ensure: async (_workspace, issue) => { tokens.push(issue()) } }, tenantKey: TENANT })
+    await live.ingest(event(alice, 'hi', dm(alice)))
+    const { createServer } = await import('node:http')
+    const seen: { auth?: string; path?: string; body?: string }[] = []
+    const upstream = createServer((request, response) => {
+      let body = ''; request.on('data', chunk => { body += chunk }); request.on('end', () => {
+        seen.push({ auth: request.headers.authorization, path: request.url, body })
+        response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"choices":[{"message":{"content":"ok"}}]}')
+      })
+    })
+    await new Promise<void>(done => upstream.listen(0, '127.0.0.1', done))
+    const model = { baseURL: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}/v1`, apiKey: 'real-model-key' }
+    const bridge = teamServer({ gateway: live, store, adminToken: 'admin-token-for-tests-0123456789', workspaceOnly: true, model })
+    await new Promise<void>(done => bridge.listen(0, '127.0.0.1', done))
+    const url = `http://127.0.0.1:${(bridge.address() as AddressInfo).port}`
+    try {
+      const ok = await fetch(url + '/ws/model/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${tokens[0]}`, 'content-type': 'application/json' }, body: '{"model":"m"}' })
+      expect(ok.status).toBe(200)
+      expect(seen).toEqual([{ auth: 'Bearer real-model-key', path: '/v1/chat/completions', body: '{"model":"m"}' }])
+      expect((await fetch(url + '/ws/model/chat/completions', { method: 'POST', headers: { authorization: 'Bearer wrong' }, body: '{}' })).status).toBe(401)
+      expect((await fetch(url + '/ws/model/files', { method: 'POST', headers: { authorization: `Bearer ${tokens[0]}` }, body: '{}' })).status).toBe(404)
+      expect((await fetch(url + '/admin/workspaces', { headers: { authorization: 'Bearer admin-token-for-tests-0123456789' } })).status).toBe(404)
+      expect(seen).toHaveLength(1)
+      expect(gateway).toBeDefined()
+    } finally { await new Promise(done => bridge.close(done)); await new Promise(done => upstream.close(done)) }
+  })
 })

@@ -305,10 +305,11 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/team/store.ts` | Team gateway prototype's own local SQLite: workspaces keyed by `union_id` with hashed tokens, seen events, routed inbox with acknowledgement, send decisions and an audit trail without message text |
 | `src/team/feishu.ts` | Raw `im.message.receive_v1` schema and its compact workspace form, the gateway's narrow Feishu port, and the in-memory simulated Feishu |
 | `src/team/gateway.ts` | Admission (tenant, `union_id`, addressing, allowlist, daily limit), first-contact workspace creation, routing, and the only `lark-cli` surface a workspace has: group results private unless explicitly requested, reads limited to the owner's chats |
-| `src/team/server.ts` | Loopback HTTP for workspace event streams and CLI calls (per-workspace token) and admin/simulation endpoints (admin token) |
+| `src/team/server.ts` | HTTP for workspace event streams, CLI calls and the model proxy (per-workspace token), admin/simulation endpoints on loopback (admin token), and a workspace-only listener for containers |
 | `src/team/shim.ts` | The `lark-cli` stand-in each workspace runs, holding no Feishu credentials and forwarding every call to the gateway |
-| `src/team/workspaces.ts` | Prototype runtime: one DSH per workspace with its own home, state, port and model key in the environment only; not an isolation boundary |
-| `src/team/main.ts` | Team gateway prototype entry with simulated Feishu and an optional process runtime |
+| `src/team/workspaces.ts` | One DSH per workspace with its own home, state and port, as a plain process or in its own locked-down container (`dockerRunArgs`) that sees only its directory and reaches the model through the gateway proxy |
+| `src/team/lark.ts` | Real Feishu port through the bot's strict-bot `lark-cli`: sends, reactions, reads, bot identity and the restarting event consumer |
+| `src/team/main.ts` | Team gateway prototype entry: simulated or real Feishu (real requires an open_id allowlist) and an optional process runtime |
 | `scripts/sync-local.mjs` | Linux loopback hub bootstrap with private credentials and state; operator steps in `docs/DEVICE_SYNC_LINUX_ACCEPTANCE.md` |
 | `scripts/smoke-sync-local.mjs` | Actual Linux hub startup, permissions, persistent restart and symlink rejection using disposable data |
 | `loom/src/client/live/DeviceSync.tsx` | Default Feishu login/QR, directory consent, project grants and cloud MCP; self-hosted controls remain under collapsed Advanced settings marked pending verification |

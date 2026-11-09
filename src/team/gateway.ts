@@ -4,7 +4,7 @@
  * never only in the workspace's prompts.
  */
 import { createHash } from 'node:crypto'
-import { compactEvent, messageText, RawMessageEventSchema, type FeishuPort, type HistoryMessage, type Outgoing } from './feishu.ts'
+import { CompactMessageEventSchema, incomingFromCompact, incomingFromRaw, messageText, RawMessageEventSchema, type FeishuPort, type HistoryMessage, type Incoming, type Outgoing } from './feishu.ts'
 import type { TeamStore, Workspace } from './store.ts'
 
 /** Starts (or wakes) a workspace's assistant; `issueToken` is called only when the workspace needs a new access token. */
@@ -15,8 +15,8 @@ export interface GatewayOptions {
   tenantKey: string
   /** Names that address the bot in a group without an @, such as its persona name. */
   aliases?: string[]
-  /** Optional allowlist; when it rejects a union_id, no workspace is created. */
-  admit?: (unionId: string) => boolean
+  /** Optional allowlist; when it rejects a person, no workspace is created. Required for CLI events, which carry no tenant. */
+  admit?: (person: { openId: string; unionId?: string }) => boolean
   /** Messages routed per workspace per day (Asia/Shanghai) before new ones are declined. */
   dailyLimit?: number
   now?: () => Date
@@ -60,55 +60,69 @@ export class Gateway {
   private get store(): TeamStore { return this.options.store }
   private now(): Date { return this.options.now?.() ?? new Date() }
 
-  /** Admits and routes one raw Feishu event; safe to call again with the same event. */
+  /** Admits and routes one raw Feishu event (simulation and webhook form); safe to call again with the same event. */
   async ingest(input: unknown): Promise<IngestOutcome> {
     const parsed = RawMessageEventSchema.safeParse(input)
-    if (!parsed.success) return { outcome: 'rejected', reason: 'invalid_event' }
-    const raw = parsed.data, { message, sender } = raw.event, at = this.now().toISOString()
-    if (!this.store.markSeen(raw.header.event_id, 'received', at) || this.store.message(message.message_id)) return { outcome: 'duplicate', reason: 'already_seen' }
+    return parsed.success ? this.route(incomingFromRaw(parsed.data)) : { outcome: 'rejected', reason: 'invalid_event' }
+  }
+  /** Admits and routes one line from `lark-cli event consume`, which carries no `union_id` or tenant. */
+  async ingestCompact(input: unknown): Promise<IngestOutcome> {
+    const parsed = CompactMessageEventSchema.safeParse(input)
+    return parsed.success ? this.route(incomingFromCompact(parsed.data)) : { outcome: 'rejected', reason: 'invalid_event' }
+  }
+
+  private async route(incoming: Incoming): Promise<IngestOutcome> {
+    const at = this.now().toISOString()
+    if (!this.store.markSeen(incoming.eventId, 'received', at) || this.store.message(incoming.messageId)) return { outcome: 'duplicate', reason: 'already_seen' }
     const ignore = (reason: string, workspaceId?: string): IngestOutcome => {
-      this.store.setSeen(raw.header.event_id, reason)
-      this.store.audit('ignored', { reason, chat: message.chat_type }, workspaceId ?? null, at)
+      this.store.setSeen(incoming.eventId, reason)
+      this.store.audit('ignored', { reason, chat: incoming.chatType }, workspaceId ?? null, at)
       return { outcome: 'ignored', reason, ...workspaceId ? { workspaceId } : {} }
     }
-    if (sender.sender_type !== 'user') return ignore('not_a_user')
-    if (sender.tenant_key !== this.options.tenantKey || raw.header.tenant_key !== this.options.tenantKey) return ignore('external_tenant')
-    const unionId = sender.sender_id.union_id
-    if (!unionId) return ignore('no_union_id')
-    const text = messageText(message)
-    const bot = this.options.feishu.bot
-    const addressed = message.chat_type === 'p2p' || message.mentions.some(mention => mention.id.open_id === bot.openId)
-      || [bot.name, ...this.options.aliases ?? []].some(name => name && text.includes(name))
+    if (incoming.senderType !== 'user') return ignore('not_a_user')
+    if (incoming.tenantKey === undefined) {
+      // Without a tenant on the event, only an explicit allowlist keeps external contacts out.
+      if (!this.options.admit) return ignore('tenant_unknown')
+    } else if (incoming.tenantKey !== this.options.tenantKey) return ignore('external_tenant')
+    // The workspace key: union_id when Feishu provides it, else the open_id, which is stable within this one app.
+    const identity = incoming.senderUnionId ?? (incoming.tenantKey === undefined ? 'open:' + incoming.senderOpenId : undefined)
+    if (!identity) return ignore('no_union_id')
+    const bot = this.options.feishu.bot, text = incoming.text
+    const mentioned = incoming.mentions.includes(bot.openId)
+    const addressed = incoming.chatType === 'p2p' || mentioned || [bot.name, ...this.options.aliases ?? []].some(name => name && text.includes(name))
     if (!addressed) return ignore('not_addressed')
 
-    let workspace = this.store.byUnion(unionId), token: string | undefined
-    if (workspace?.status === 'disabled') return ignore('workspace_disabled', workspace.id)
-    const created = !workspace
-    if (!workspace) {
-      if (this.options.admit && !this.options.admit(unionId)) return ignore('not_admitted')
-      ;({ workspace, token } = this.store.createWorkspace({ unionId, openId: sender.sender_id.open_id, tenantKey: sender.tenant_key, name: '' }, at))
-      this.store.audit('workspace_created', { chat: message.chat_type }, workspace.id, at)
-    }
+    const existing = this.store.byUnion(identity)
+    if (existing?.status === 'disabled') return ignore('workspace_disabled', existing.id)
+    if (!existing && this.options.admit && !this.options.admit({ openId: incoming.senderOpenId, ...incoming.senderUnionId ? { unionId: incoming.senderUnionId } : {} }))
+      return ignore('not_admitted')
+    let token: string | undefined
+    const workspace = existing ?? (() => {
+      const made = this.store.createWorkspace({ unionId: identity, openId: incoming.senderOpenId, tenantKey: incoming.tenantKey ?? '', name: '' }, at)
+      token = made.token
+      this.store.audit('workspace_created', { chat: incoming.chatType }, made.workspace.id, at)
+      return made.workspace
+    })()
+    const created = !existing
     const limit = this.options.dailyLimit
     if (limit !== undefined && this.store.routedSince(workspace.id, dayStart(this.now())) >= limit) {
       await this.notify(workspace, `quota:${shanghaiDay(this.now())}`, '今天的使用次数已达上限，明天再来找我吧。')
       return ignore('quota', workspace.id)
     }
     // A group event is delivered as if the bot were mentioned, since the gateway already decided it was addressed.
-    const line = compactEvent(raw)
-    if (message.chat_type === 'group' && !message.mentions.some(mention => mention.id.open_id === bot.openId))
-      (line.mentions as unknown[]).push({ id: bot.openId, key: '@_gateway', name: bot.name })
+    const line = { ...incoming.line }
+    if (incoming.chatType === 'group' && !mentioned) line.mentions = [...line.mentions as unknown[], { id: bot.openId, key: '@_gateway', name: bot.name }]
     const seq = this.store.atomic(() => {
-      const value = this.store.enqueue({ eventId: raw.header.event_id, messageId: message.message_id, workspaceId: workspace.id, chatId: message.chat_id,
-        chatType: message.chat_type, text, line: JSON.stringify(line), receivedAt: at })
-      this.store.touch(workspace.id, at, sender.sender_id.open_id)
-      this.store.setSeen(raw.header.event_id, 'routed')
+      const value = this.store.enqueue({ eventId: incoming.eventId, messageId: incoming.messageId, workspaceId: workspace.id, chatId: incoming.chatId,
+        chatType: incoming.chatType, text, line: JSON.stringify(line), receivedAt: at })
+      this.store.touch(workspace.id, at, incoming.senderOpenId)
+      this.store.setSeen(incoming.eventId, 'routed')
       return value
     })
-    this.store.audit('routed', { seq, chat: message.chat_type }, workspace.id, at)
+    this.store.audit('routed', { seq, chat: incoming.chatType }, workspace.id, at)
     if (created) await this.notify(workspace, 'welcome', '你好，我是团队工作助手。我已为你单独开了一个工作区：你的会话、任务和产物只保存在里面，其他同事看不到。'
       + '\n在群里 @ 我时，我默认私聊回复你；需要发到群里时请直接说「发到群里」。')
-    if (message.chat_type === 'group') await this.options.feishu.react(message.message_id, 'OK').catch(() => {})
+    if (incoming.chatType === 'group') await this.options.feishu.react(incoming.messageId, 'OK').catch(() => {})
     this.wake(workspace.id)
     const issued = token
     await this.options.runtime.ensure(workspace, () => issued ?? this.store.rotateToken(workspace.id)).catch(error => {

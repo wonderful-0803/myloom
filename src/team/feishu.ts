@@ -37,6 +37,36 @@ export function compactEvent(raw: RawMessageEvent): Record<string, unknown> {
     ...message.thread_id ? { thread_id: message.thread_id } : {} }
 }
 
+/** The compact line `lark-cli event consume im.message.receive_v1` prints: it identifies the sender by `open_id` only, with no tenant. */
+export const CompactMessageEventSchema = z.looseObject({
+  message_id: z.string().regex(/^om_[A-Za-z0-9_-]+$/), chat_id: z.string().regex(/^oc_[A-Za-z0-9_-]+$/), chat_type: z.enum(['p2p', 'group']),
+  sender_id: z.string(), sender_type: z.string(), content: z.string(), create_time: z.string(), event_id: z.string().optional(),
+  mentions: z.array(z.looseObject({ id: z.string(), key: z.string().optional(), name: z.string().optional() })).default([]),
+  root_id: z.string().optional(), parent_id: z.string().optional(), reply_to: z.string().optional(), thread_id: z.string().optional(),
+})
+/** One message event in the gateway's terms, whichever form it arrived in. `unionId` and `tenantKey` are absent for CLI events. */
+export interface Incoming {
+  eventId: string; messageId: string; chatId: string; chatType: 'p2p' | 'group'; senderOpenId: string; senderUnionId?: string
+  senderType: string; tenantKey?: string; text: string; mentions: string[]; line: Record<string, unknown>
+}
+export function incomingFromRaw(raw: RawMessageEvent): Incoming {
+  const { message, sender } = raw.event
+  return { eventId: raw.header.event_id, messageId: message.message_id, chatId: message.chat_id, chatType: message.chat_type,
+    senderOpenId: sender.sender_id.open_id, ...sender.sender_id.union_id ? { senderUnionId: sender.sender_id.union_id } : {}, senderType: sender.sender_type,
+    // Both keys must agree; a mismatch is treated as another tenant.
+    tenantKey: sender.tenant_key === raw.header.tenant_key ? sender.tenant_key : '\u0000mismatch', text: messageText(message),
+    mentions: message.mentions.flatMap(mention => mention.id.open_id ? [mention.id.open_id] : []), line: compactEvent(raw) }
+}
+export function incomingFromCompact(event: z.infer<typeof CompactMessageEventSchema>): Incoming {
+  const line: Record<string, unknown> = { message_id: event.message_id, chat_id: event.chat_id, chat_type: event.chat_type, sender_id: event.sender_id,
+    sender_type: event.sender_type === 'user' ? 'user' : 'bot', content: event.content, create_time: event.create_time,
+    mentions: event.mentions.map(mention => ({ id: mention.id, ...mention.key ? { key: mention.key } : {}, ...mention.name ? { name: mention.name } : {} })),
+    ...event.root_id ? { root_id: event.root_id } : {}, ...event.parent_id ? { parent_id: event.parent_id } : {},
+    ...event.reply_to ? { reply_to: event.reply_to } : {}, ...event.thread_id ? { thread_id: event.thread_id } : {} }
+  return { eventId: event.event_id ?? 'msg:' + event.message_id, messageId: event.message_id, chatId: event.chat_id, chatType: event.chat_type,
+    senderOpenId: event.sender_id, senderType: event.sender_type, text: event.content, mentions: event.mentions.map(mention => mention.id), line }
+}
+
 /** A message in the history-API shape (`/open-apis/im/v1/messages`), which the workspace's backfill and reads validate. */
 export interface HistoryMessage {
   message_id: string; chat_id: string; create_time: string; msg_type: string; root_id?: string; parent_id?: string; thread_id?: string
