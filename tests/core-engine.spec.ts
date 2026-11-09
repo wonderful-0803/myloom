@@ -1047,6 +1047,41 @@ describe('replies', () => {
     h.engine.report(ticketId, { state: 'ready', summary: 'Done' })
     expect(h.engine.reply({ purpose: 'result', ticketId, text: 'Done' })).toMatchObject({ status: 'pending' })
     expect(h.outbox.at(-1)!.channel).toEqual(trigger('1').channel)
+    expect(h.outbox.at(-1)!.standalone).toBeUndefined()
+  })
+  it('posts each milestone once in the source conversation while the ticket runs on, and refuses anything else as one', () => {
+    const h = harness()
+    const ticketId = accepted(h).ticketId!
+    expect(() => h.engine.reply({ purpose: 'milestone', ticketId, text: 'x' })).toThrow(new UserError('notMilestone'))
+    h.engine.report(ticketId, { state: 'progress', summary: 'working' })
+    expect(() => h.engine.reply({ purpose: 'milestone', ticketId, text: 'x' })).toThrow(new UserError('notMilestone'))
+    h.tick(1); h.engine.report(ticketId, { state: 'progress', summary: 'BUG-1: PR opened', milestone: true })
+    const first = h.repo.tickets.get(ticketId)!.assignments.at(-1)!.report!
+    expect(first).toMatchObject({ state: 'progress', milestone: true })
+    expect(h.engine.reply({ purpose: 'milestone', ticketId, text: 'BUG-1 has a PR' })).toEqual({ id: key('milestone', ticketId, first.at), status: 'pending', reused: false })
+    expect(h.outbox.at(-1)).toMatchObject({ channel: trigger('1').channel, text: 'BUG-1 has a PR', kind: 'reply', ticketId, standalone: true })
+    // A retry, even reworded, reuses the one message for that milestone.
+    expect(h.engine.reply({ purpose: 'milestone', ticketId, text: 'BUG-1 opened a PR' })).toMatchObject({ id: key('milestone', ticketId, first.at), reused: true })
+    expect(h.outbox.filter(message => message.text.startsWith('BUG-1'))).toHaveLength(1)
+    h.tick(1); h.engine.report(ticketId, { state: 'progress', summary: 'BUG-2: handed to a person', milestone: true })
+    const second = h.engine.reply({ purpose: 'milestone', ticketId, text: 'BUG-2 needs a person' })
+    expect(second).toMatchObject({ id: key('milestone', ticketId, h.repo.tickets.get(ticketId)!.assignments.at(-1)!.report!.at), reused: false })
+    expect(h.repo.tickets.get(ticketId)!.ended).toBeUndefined()
+    expect(() => h.engine.reply({ purpose: 'result', ticketId, text: 'Done' })).toThrow(new UserError('notReady'))
+    expect(h.repo.tickets.get(ticketId)!.milestones).toBe(2)
+    // The result that closes a series of milestones posts as a new message too.
+    h.tick(1); h.engine.report(ticketId, { state: 'ready', summary: 'Round over' })
+    expect(() => h.engine.reply({ purpose: 'milestone', ticketId, text: 'late' })).toThrow(new UserError('notMilestone'))
+    h.engine.reply({ purpose: 'result', ticketId, text: 'Round over' })
+    expect(h.outbox.at(-1)).toMatchObject({ text: 'Round over', standalone: true, channel: trigger('1').channel })
+  })
+  it('refuses a milestone that is also a result, a blocker, a question or an answer', () => {
+    const h = harness()
+    const ticketId = accepted(h).ticketId!
+    for (const report of [{ state: 'ready' as const }, { state: 'blocked' as const }, { state: 'progress' as const, question: 'Which?' },
+      { state: 'progress' as const, answers: '1' }]) {
+      expect(() => h.engine.report(ticketId, { summary: 'x', milestone: true, ...report })).toThrow(new UserError('milestoneNotProgress'))
+    }
   })
 })
 describe('ticket commands', () => {

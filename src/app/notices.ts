@@ -114,16 +114,16 @@ export function resultRelay(ticket: Ticket, state: string, text: string, replyTo
 }
 /**
  * Converts a worker report recorded on `ticket` into a main-Session relay: a question for a person produces a
- * `worker_attention` relay, and a result, blocker, end, or answer to a question produces a `worker_report` relay, while
- * routine `progress` reports without `answers` stay internal.
+ * `worker_attention` relay, and a result, blocker, end, milestone, or answer to a question produces a `worker_report` relay,
+ * while routine `progress` reports without `answers` or `milestone` stay internal.
  * @returns The steering `Relay`, or `undefined` when the report is not relayed to the main Session.
  */
-export function reportRelay(ticket: Ticket, report: Pick<WorkerReport, 'state' | 'summary' | 'question' | 'answers'>): Relay | undefined {
+export function reportRelay(ticket: Ticket, report: Pick<WorkerReport, 'state' | 'summary' | 'question' | 'answers' | 'milestone'>): Relay | undefined {
   const asked = report.question ? ticket.attention : undefined
   if (asked) {
     return { id: `attention:${ticket.id}:${asked.id}`,
       text: JSON.stringify({ kind: 'worker_attention', ticket: brief(ticket), state: report.state, read: `ticket/${ticket.id}/result` }) }
   }
-  if (report.state === 'progress' && !report.answers) return undefined
-  return resultRelay(ticket, report.state, report.summary, report.answers)
+  if (report.state === 'progress' && !report.answers && !report.milestone) return undefined
+  return resultRelay(ticket, report.milestone ? 'milestone' : report.state, report.summary, report.answers)
 }

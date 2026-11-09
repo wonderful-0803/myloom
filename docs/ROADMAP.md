@@ -41,6 +41,7 @@
   - 当前新增 CSV 精确汇总、口径与快照工具（`skills/dsh-superagent-office/aggregate.py`，`tests/office-data.spec.ts`）；真实群聊和检索证据逐项记入 `PERSONAL_ACCEPTANCE.md`。通用表格/飞书数据权限变化的验收仍未完成。
 - [x] 办公任务的初始化、完成和验收独立于代码仓库或 PR，按产物定义完成条件。实现：`src/app/setup.ts`、`src/app/tools/executor.ts`、`skills/dsh-superagent-office/SKILL.md`；验证：`tests/personal.spec.ts` 的仅飞书启动、无 PR 完成及后续恢复测试。真实任务质量仍需联调。
 - [ ] 配置持久化、重试与去重；恢复执行前检查已有外部结果，避免重复写入和交付。
+- [x] 2026-11-05 按用户要求接入本机 BugFixer（AI-Native: AutoDebug）：本人明确请求时启动、跟踪或停止一轮修复，每张 Bug 出结果即在原线程播报，结束发汇总。新增阶段结果（milestone）报告与回复用途，每份报告只发一次。实现与权限边界见 `AUTODEBUG.md`；验证：`tests/core-engine.spec.ts`、`tests/runtime-concurrency.spec.ts`、`tests/autodebug.spec.ts`。2026-11-05 在 AutoDebug 群真实跟进一轮 6 张票，逐张播报与汇总均与 BugFixer 记录一致；由 Loom 启动／停止的真实路径尚待验收。
 
 ### P3：用户介入与协同
 

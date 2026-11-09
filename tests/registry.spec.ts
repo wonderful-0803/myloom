@@ -158,5 +158,11 @@ describe('Source registry', () => {
     const reply: OutboundMessage = { id: 'reply-1', channel, text: 'Done', kind: 'reply' }
     expect(await sources.send(reply, commands)).toBe('sent')
     expect(run.mock.calls[0]![1]).toEqual(expect.arrayContaining(['+messages-reply', '--message-id', 'om_dm']))
+    // A standalone message, such as a milestone, posts a new message in the chat instead of replying in the thread.
+    expect(await sources.send({ ...reply, id: 'milestone-1', standalone: true }, commands)).toBe('sent')
+    const posted = run.mock.calls[1]![1] as string[]
+    expect(posted).toEqual(expect.arrayContaining(['+messages-send', '--chat-id', 'oc_dm', '--idempotency-key', 'milestone-1']))
+    expect(posted).not.toContain('+messages-reply')
+    expect(posted).not.toContain('--reply-in-thread')
   })
 })
