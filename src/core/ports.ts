@@ -1,5 +1,5 @@
 /** Ports the core depends on. Sources, policies, assessors, executors, and channels are project-specific. */
-import type { Assignment, ChannelRef, Decision, DecisionKind, Mandate, MandateBasis, Strength, Thread, Ticket, TicketEndBy, TicketOutcome, Trigger }
+import type { ActorRef, Assignment, ChannelRef, Decision, DecisionKind, Mandate, MandateBasis, Strength, Thread, Ticket, TicketEndBy, TicketOutcome, Trigger }
   from './model.ts'
 import type { Reason } from './reasons.ts'
 
@@ -10,7 +10,7 @@ export type GateResult = { admissible: false; reason: string } | { admissible: t
 export type ScopeResult = { listened: true; observed: boolean; row?: string } | { listened: false; reason: string }
 /** Source configuration as the domain sees it: listening scope per trigger or per recorded Mandate basis. */
 export interface SourceScope {
-  scope(input: { source: string; meta: Record<string, unknown> }): ScopeResult
+  scope(input: { source: string; meta: Record<string, unknown>; actor?: ActorRef }): ScopeResult
 }
 
 /** Versioned rules; `gate` decides who may originate work. Source scope is not part of Policy. */

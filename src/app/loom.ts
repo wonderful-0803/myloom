@@ -16,6 +16,7 @@ import type { LoomArtifact, LoomMail, LoomSnapshot, LoomTask } from './loom-type
 import type { Deployment } from '../deployment.ts'
 import type { Health } from '../sources/host.ts'
 import type { Delegations } from './delegations.ts'
+import type { Meetings } from './meetings.ts'
 import type { Settings } from './settings.ts'
 import type { TaskProgress } from './task-progress.ts'
 import type { ResultDelivery } from './result-delivery.ts'
@@ -23,11 +24,13 @@ import type { CodexHistory } from './codex-history.ts'
 import type { DeviceSync } from '../sync/client.ts'
 import type { FeishuSync } from '../sync/feishu.ts'
 import { SyncError } from '../sync/model.ts'
+import { GroupMasterSchema, GroupWorkspaceSchema, groupWorkspace } from '../group-mode.ts'
+import type { Commands } from '../infra/commands.ts'
 import { packagePath } from '../infra/paths.ts'
 
 interface Host {
   store: Store; sources: SourceRegistry; artifacts: Artifacts; quietDrafts: QuietDrafts; controls: TaskControls
-  mail: FeishuMail; delegations: Delegations; health(): Record<string, Health>; configured(): boolean; deployment(): Deployment
+  mail: FeishuMail; delegations: Delegations; meetings?: Meetings; health(): Record<string, Health>; configured(): boolean; deployment(): Deployment
   settings: Pick<Settings, 'save'>
   progress: TaskProgress
   resultDelivery: ResultDelivery
@@ -35,6 +38,7 @@ interface Host {
   deviceSync: DeviceSync
   feishuSync: FeishuSync
   syncPort(): number
+  commands: Commands
 }
 /** A bounded workspace input, authorization or revision failure, serialized by the loopback HTTP adapter. */
 export class LoomError extends Error { constructor(readonly status: 400 | 404 | 409 | 503, message: string) { super(message) } }
@@ -42,7 +46,7 @@ const revision = z.number().int().nonnegative()
 const version = z.number().int().positive()
 const dto = (value: ArtifactVersion): LoomArtifact => ({ subject: value.subject, kind: value.kind, title: value.title,
   version: value.version, body: value.body, hash: value.hash, author: value.author, at: value.at, sources: value.sources,
-  ...value.editedVia ? { editedVia: value.editedVia } : {}, ...value.filename ? { filename: value.filename } : {} })
+  ...value.editedBy ? { editedBy: value.editedBy } : {}, ...value.editedVia ? { editedVia: value.editedVia } : {}, ...value.filename ? { filename: value.filename } : {}, ...value.file ? { file: value.file } : {} })
 const mailView = (value: MailProposal): LoomMail => ({ token: value.token, ticketId: value.ticketId, to: value.to,
   subject: value.subject, body: value.body, status: value.status, artifactVersion: value.artifactVersion, createdAt: value.createdAt })
 
@@ -51,11 +55,35 @@ export class LoomWorkspace {
   constructor(private readonly host: Host) {}
   owner(): string {
     const { sources, store } = this.host, allowed = sources.policyPart('feishu')?.allowed ?? []
-    if (!this.host.configured() || store.settings().sources.github?.enabled !== false
+    if (groupWorkspace(store.settings()) || !this.host.configured() || store.settings().sources.github?.enabled !== false
       || sources.instance('feishu')?.enabled !== true || !feishuSettings(sources).ownerOnly || allowed.length !== 1) {
       throw new LoomError(503, 'Loom 需要已配置的单人飞书助手；请先核对本机运行配置。')
     }
     return allowed[0]!.id
+  }
+  /** Local management identity; group members operate through authenticated Feishu events, never by choosing an HTTP owner. */
+  private operator(): string {
+    const group = groupWorkspace(this.host.store.settings())
+    if (!group) return this.owner()
+    const allowed = this.host.sources.policyPart('feishu')?.allowed ?? []
+    if (!this.host.configured() || this.host.store.settings().sources.github?.enabled !== false || !feishuSettings(this.host.sources).ownerOnly
+      || this.host.sources.instance('feishu')?.enabled !== true || allowed.length !== 1 || allowed[0]?.id !== group.operator)
+      throw new LoomError(503, '共享模式需要已配置的飞书助手及唯一管理者。')
+    return group.operator
+  }
+  private workspace() {
+    const group = groupWorkspace(this.host.store.settings())
+    return { mode: group ? 'group' as const : 'personal' as const, operator: this.operator(), revision: this.host.store.blockRevision('policy'),
+      ...(group ? { group: { chatId: group.chatId, name: group.name, masters: group.masters } } : {}) }
+  }
+  private async members(chatId: string) {
+    if (!feishuSettings(this.host.sources).chats.some(chat => chat.chatId === chatId)) throw new LoomError(404, '只能选择当前已授权监听的群。')
+    try {
+      const result = z.object({ users: z.array(z.object({ member_id: z.string().regex(/^ou_[A-Za-z0-9]+$/), name: z.string() })),
+        has_more: z.boolean(), truncations: z.array(z.unknown()).optional() }).parse(await this.host.commands.lark(['im', '+chat-members-list', '--chat-id', chatId, '--member-types', 'user', '--page-all', '--page-limit', '0']))
+      if (result.has_more || result.truncations?.length) throw new Error('Incomplete membership')
+      return result.users.map(user => ({ id: user.member_id, name: user.name.slice(0, 100) }))
+    } catch { throw new LoomError(409, '群成员读取未完成，请核对机器人群权限后重试；未修改主人名单。') }
   }
   private task(id: string, owner: string): Ticket {
     const ticket = this.host.store.tickets.get(id)
@@ -80,7 +108,7 @@ export class LoomWorkspace {
     return this.host.resultDelivery.list(owner, ticketId).map(({ id, ticketId, version, mode, status, at, updatedAt, destination, detail }) => ({ id, ticketId, version, mode, status, at, updatedAt, destination, detail }))
   }
   snapshot(): LoomSnapshot {
-    const owner = this.owner(), { store, artifacts, quietDrafts, sources, controls } = this.host
+    const owner = this.operator(), { store, artifacts, quietDrafts, sources, controls } = this.host
     const config = feishuSettings(sources), settings = store.settings(), labels = store.get(KV.sources.labels('feishu')) ?? {}
     const tickets = store.tickets.list().filter(ticket => artifacts.canReadContext(ticket, owner))
     const drafts = quietDrafts.list(owner)
@@ -92,7 +120,8 @@ export class LoomWorkspace {
         const request = store.get(KV.feishu.assistant(trigger.id))
         const thread = trigger.threads[0] && store.threads.get(`${trigger.threads[0].source}:${trigger.threads[0].id}`)
         const taskIds = tickets.filter(ticket => ticket.origin.triggerIds.includes(trigger.id) || ticket.inputs.some(input => input.kind === 'trigger' && input.triggerId === trigger.id)).map(ticket => ticket.id)
-        return { id: trigger.id, text: trigger.source === 'codex-daily' ? `Codex 日报任务 · ${String(trigger.meta.date)}（来源快照限任务内读取）` : trigger.text, at: trigger.at, chat: trigger.source === 'codex-daily' ? '本机 Codex' : labels[String(trigger.meta.chatId)] ?? String(trigger.meta.chatId ?? ''),
+        return { id: trigger.id, ...groupWorkspace(settings) ? { actor: groupWorkspace(settings)!.masters.find(person => person.id === trigger.actor.id)?.name || trigger.actor.id, contextOnly: trigger.meta.groupContextOnly === true } : {},
+          text: trigger.source === 'codex-daily' ? `Codex 日报任务 · ${String(trigger.meta.date)}（来源快照限任务内读取）` : trigger.text, at: trigger.at, chat: trigger.source === 'codex-daily' ? '本机 Codex' : labels[String(trigger.meta.chatId)] ?? String(trigger.meta.chatId ?? ''),
           direct: trigger.meta.direct === true, action: request?.action, decision: decision?.kind,
           observed: decision?.audit?.would_accept === true, taskIds,
           ...(thread?.evaluating?.triggerIds.includes(trigger.id) ? { processing: 'evaluating' as const } : thread?.pending.includes(trigger.id) ? { processing: 'queued' as const } : {}) }
@@ -115,23 +144,56 @@ export class LoomWorkspace {
         ? [{ id: request.triggerId, action: request.action, status: request.status, at: request.at }] : []
     }).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 30)
     const model = settings.executor.model
-    return { at: new Date().toISOString(), paused: settings.paused, mode: settings.eval.mode, model: typeof model === 'string' ? model : model ? `${model.provider}/${model.model}` : '', tasks,
+    return { workspace: this.workspace(), at: new Date().toISOString(), paused: settings.paused, mode: settings.eval.mode, model: typeof model === 'string' ? model : model ? `${model.provider}/${model.model}` : '', tasks,
       automation: { revision: store.blockRevision('eval'), maxWorkers: settings.executor.maxWorkers, timeoutSeconds: settings.eval.timeoutSeconds },
       delivery: this.deliverySetting(owner), resultDeliveries: this.deliveryReceipts(owner),
       artifacts: values.map(dto), drafts: drafts.map(draft => ({ id: draft.id, title: draft.title, status: draft.status, at: draft.at,
         ...draft.confirmedVersion ? { confirmedVersion: draft.confirmedVersion } : {} })), events,
       rules: settings.policy.rules.filter(rule => !rule.delegation).map(rule => ({ id: rule.id, name: rule.name, enabled: rule.enabled, text: rule.instruction })), deliveries,
       policyRevision: store.blockRevision('policy'), delegations: this.host.delegations.list(owner, tickets),
+      ...(groupWorkspace(settings) && this.host.meetings ? { recordings: { available: this.host.meetings.available(), ...this.host.meetings.provider(), items: this.host.meetings.list() } } : {}),
       connection: { appId: this.host.deployment().feishu?.appId ?? '', name: this.host.deployment().feishu?.name ?? '飞书助手',
         cardsEnabled: config.cardsEnabled, draftsEnabled: config.draftsEnabled, mailProvider: config.mailProvider,
-        chats: config.chats.map(chat => ({ chatId: chat.chatId, name: chat.name || labels[chat.chatId] || chat.chatId, listen: chat.listen })),
+        chats: config.chats.filter(chat => !groupWorkspace(settings) || chat.chatId === groupWorkspace(settings)!.chatId).map(chat => ({ chatId: chat.chatId, name: chat.name || labels[chat.chatId] || chat.chatId, listen: chat.listen })),
         health: Object.entries(this.host.health()).filter(([id]) => ['runtime','feishu','history','draft','assistant','cards','evals','result'].includes(id))
           .map(([id, health]) => ({ id, state: health.state })) } }
   }
   async handle(method: string, path: string[], query: Record<string, string>, body: () => Promise<unknown>): Promise<unknown> {
-    const owner = this.owner(), { artifacts, quietDrafts, controls, mail, store } = this.host
+    const owner = this.operator(), { artifacts, quietDrafts, controls, mail, store } = this.host
     if (method === 'GET' && !path.length) return this.snapshot()
     const [kind, subject, operation] = path
+    if (kind === 'workspace' && path.length === 1 && method === 'GET') return this.workspace()
+    if (kind === 'workspace' && subject === 'members' && path.length === 2 && method === 'GET') {
+      const id = z.string().regex(/^oc_[A-Za-z0-9]+$/).parse(query.chatId), revision = store.blockRevision('policy')
+      const members = await this.members(id)
+      if (this.operator() !== owner || store.blockRevision('policy') !== revision) throw new LoomError(409, '授权已变化，请刷新后重试。')
+      return { members }
+    }
+    if (kind === 'workspace' && path.length === 1 && method === 'PUT') {
+      const input = z.object({ mode: z.enum(['personal', 'group']), revision,
+        chatId: z.string().regex(/^oc_[A-Za-z0-9]+$/).optional(), masters: z.array(GroupMasterSchema).min(1).max(20).optional() }).strict().parse(await body())
+      if (input.revision !== store.blockRevision('policy')) throw new LoomError(409, '设置已变化，请刷新后重试。')
+      const sourceRevision = store.blockRevision('source:feishu')
+      const old = groupWorkspace(store.settings())
+      let workspace
+      if (input.mode === 'group') {
+        const chat = feishuSettings(this.host.sources).chats.find(chat => chat.chatId === input.chatId)
+        if (!chat || !input.masters?.some(person => person.id === owner)) throw new LoomError(400, '请选择已授权的群，并保留管理者为主人。')
+        const members = await this.members(chat.chatId), ids = new Set(input.masters.map(person => person.id))
+        if (ids.size !== input.masters.length || input.masters.some(person => !members.some(member => member.id === person.id))) throw new LoomError(400, '主人必须是当前群成员，且不能重复。')
+        workspace = GroupWorkspaceSchema.parse({ mode: 'group', operator: owner, chatId: chat.chatId, name: chat.name || chat.chatId,
+          masters: members.filter(member => ids.has(member.id)), spaceId: old?.chatId === chat.chatId ? old.spaceId : randomUUID(),
+          since: old?.chatId === chat.chatId ? old.since : new Date().toISOString() })
+      } else if (input.chatId || input.masters) throw new LoomError(400, '个人模式不接受群授权参数。')
+      if (this.operator() !== owner || input.revision !== store.blockRevision('policy') || sourceRevision !== store.blockRevision('source:feishu')) throw new LoomError(409, '核验期间授权已变化，请刷新后重试。')
+      const policy = store.settings().policy, part = { ...policy.sources.feishu! }
+      if (workspace) part.workspace = workspace; else delete part.workspace
+      const result = await this.host.settings.save('policy', { ...policy, sources: { ...policy.sources, feishu: part } }, input.revision, 'panel')
+      return { ...this.workspace(), restarting: result.restarting, message: workspace ? '群内共享模式已保存，仅选定主人可发起和控制任务；模式切换将重启调度会话。' : '个人模式已保存，群内共享记录不会自动转入个人任务。' }
+    }
+    if (groupWorkspace(store.settings()) && (['sync', 'codex', 'mail', 'drafts', 'delivery'].includes(kind ?? '')
+      || kind === 'delegations' && (subject === 'codex-options' || operation === 'run') || kind === 'tasks' && ['mail', 'delivery', 'report-file'].includes(operation ?? '')))
+      throw new LoomError(409, '群内共享模式的报告固定交付原群；个人邮箱、私人历史、设备同步及文件工具需要切回个人模式。')
     if (kind === 'sync') {
       const cloud = subject === 'feishu', segments = path.slice(cloud ? 2 : 1)
       if (segments[0] === 'mcp-config' && segments.length === 1 && method === 'GET') return { config: `[mcp_servers.loom_context]\ncommand = ${JSON.stringify(process.execPath)}\nargs = [${JSON.stringify(packagePath('lib', 'sync-mcp.js'))}]\n[mcp_servers.loom_context.env]\nLOOM_SYNC_LOCAL_URL = "http://127.0.0.1:${this.host.syncPort()}/orchestrator/api/loom/sync${cloud ? '/feishu' : ''}"\n` }
@@ -145,7 +207,7 @@ export class LoomWorkspace {
         if (subject === 'sessions' && method === 'GET') {
           const result = path.length === 2 ? await this.host.codexHistory.list(owner, query)
             : path.length === 3 && operation ? await this.host.codexHistory.messages(owner, operation, query) : undefined
-          if (this.owner() !== owner) throw new LoomError(404, '当前所有者授权已变化。')
+          if (this.operator() !== owner) throw new LoomError(404, '当前所有者授权已变化。')
           if (result) return result
         }
       } catch (error) {
@@ -160,7 +222,7 @@ export class LoomWorkspace {
     }
     if (kind === 'delivery' && subject === 'mailbox' && path.length === 2 && method === 'POST') {
       const value = await mail.binding(owner)
-      if (this.owner() !== owner) throw new LoomError(409, '所有者授权已变化。')
+      if (this.operator() !== owner) throw new LoomError(409, '所有者授权已变化。')
       return value
     }
     if (kind === 'tasks' && subject && operation === 'delivery' && path.length === 3) {
@@ -186,7 +248,7 @@ export class LoomWorkspace {
     if (kind === 'tasks' && subject && operation === 'progress' && path.length === 3 && method === 'GET') {
       this.task(subject, owner)
       const result = await this.host.progress.read(subject)
-      if (this.owner() !== owner) throw new LoomError(404, '任务所有者授权已变化。')
+      if (this.operator() !== owner) throw new LoomError(404, '任务所有者授权已变化。')
       this.task(subject, owner)
       return result
     }
@@ -205,7 +267,7 @@ export class LoomWorkspace {
     }
     if (kind === 'delegations') {
       if (subject === 'codex-options' && path.length === 2 && method === 'GET') {
-        const check = () => { if (this.owner() !== owner) throw new LoomError(409, '本人授权已变化。') }
+        const check = () => { if (this.operator() !== owner) throw new LoomError(409, '本人授权已变化。') }
         try { const result = await this.host.codexHistory.catalog(shanghaiDate(), check); check(); return result }
         catch (error) { if (error instanceof LoomError) throw error; throw new LoomError(409, 'Codex 会话列表暂不可用，请核对本机 Codex CLI。') }
       }
@@ -225,6 +287,7 @@ export class LoomWorkspace {
     }
     if (kind === 'artifacts' && subject && operation === 'export' && path.length === 3 && method === 'GET') {
       const at = z.coerce.number().int().positive().parse(query.version), value = this.artifact(subject, owner, at)
+      if (value.file) return { filename: value.file.filename, content: artifacts.fileBytes(value, owner).toString('base64'), encoding: 'base64', mediaType: value.file.mediaType, sha256: value.file.sha256 }
       return { filename: 'result.txt', content: `${value.title}\n版本：v${value.version}\nSHA256：${value.hash}\n作者：${value.author}\n时间：${value.at}\n来源：${value.sources.map(s => s.triggerId).join(', ')}\n\n${value.body}\n` }
     }
     if (kind === 'artifacts' && subject && path.length === 2 && method === 'PUT') {

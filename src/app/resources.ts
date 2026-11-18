@@ -18,6 +18,7 @@ import type { Sessions } from './sessions.ts'
 import type { Settings } from './settings.ts'
 import { KV } from '../kv.ts'
 import type { Store } from './store.ts'
+import { groupWorkspace, inGroup } from '../group-mode.ts'
 import type { TextCache } from './cache.ts'
 
 /** Resource descriptors exposed via orchestrator_read, marking which resources worker sessions may also read for their own ticket. */
@@ -69,6 +70,8 @@ export interface ResourceHost {
   /** Optional source-derived data boundary, including historical snapshots after grant changes. */
   canReadTrigger?(trigger: Trigger): boolean
   canReadTicket?(ticket: Ticket): boolean
+  recordGroupContext?(ticketId: string, triggers: Trigger[]): void
+  recordingTranscript?(ticketId: string, offset: number, limit: number): unknown
   feishuPageSize(): number
   sourceLink(trigger: Trigger, signal?: AbortSignal): Promise<{ source_url?: string; source_url_read?: string }>
 }
@@ -119,6 +122,14 @@ async function transcript(host: ResourceHost, ticketId: string) {
 }
 
 const ROUTES: readonly Route[] = [
+  ['group-context', read => {
+    const { host, ticketId } = read, group = groupWorkspace(host.store.settings())
+    if (!group || !ticketId) throw new Error('Group context belongs to an authorized shared task')
+    const page = list(read, (offset, count) => host.store.read.groupContext(group.spaceId, offset, count)
+      .filter(trigger => inGroup(trigger, group) && host.canReadTrigger?.(trigger) !== false))
+    host.recordGroupContext?.(ticketId, page.items)
+    return { items: page.items.map(trigger => ({ trigger_id: trigger.id, actor: trigger.actor.id, at: trigger.at, text: trigger.text, context_only: true })), next_offset: page.next_offset }
+  }],
   ['tickets', read => {
     const host = main(read), tickets = host.store.tickets.list().filter(ticket => host.canReadTicket?.(ticket) !== false)
     const card = (ticket: Ticket) => ({ ...ticketCard(ticket), ...host.sessions.modelRetry(runningAssignment(ticket) && workerSessionId(ticket.id)) })
@@ -242,6 +253,10 @@ const ROUTES: readonly Route[] = [
     if (ticketId && ticketId !== id) throw new Error('Ticket does not belong to this worker')
     const ticket = host.store.tickets.get(id)
     if (!ticket) throw new UserError('unknownTicket')
+    if (section === 'recording-transcript' && !part) {
+      if (!host.recordingTranscript) throw new Error('Recording transcription is unavailable')
+      return host.recordingTranscript(id, read.offset, Math.min(read.limit ?? 6000, 12000))
+    }
     if (section === undefined) {
       const running = runningAssignment(ticket) && workerSessionId(ticket.id)
       const retry = 'sessions' in host ? (host as MainResourceHost).sessions.modelRetry(running) : {}
@@ -307,7 +322,17 @@ export async function readResource(host: ResourceHost, resource: string, offset:
   const sessionId = ticketId ? workerSessionId(ticketId) : host.masterId
   const rest = route[0].endsWith('/') ? name.slice(route[0].length) : ''
   const check = () => {
+    const shared = groupWorkspace(host.store.settings())
+    if (shared && !ticketId && !['tickets', 'triggers', 'settings', 'models'].includes(name)
+      && !/^(trigger|ticket|feishu|decision|thread|models)\//.test(name)) throw new Error('共享调度器仅可读取当前群和任务资源。')
+    if (shared && name.startsWith('decision/')) {
+      const item = host.store.decisions.get(rest)
+      if (!item || !item.triggerIds.every(id => { const source = host.store.triggers.get(id); return source && host.canReadTrigger?.(source) !== false })) throw new Error('Decision is outside current group')
+    }
+    if (shared && name.startsWith('thread/')) throw new Error('共享上下文请通过当前任务的 group-context 或 feishu 来源读取。')
+    if (ticketId) { const item = host.store.tickets.get(ticketId); if (!item || host.canReadTicket?.(item) === false) throw new Error('Task source authorization was revoked') }
     if (name.startsWith('trigger/')) { const item = host.store.triggers.get(rest); if (item && host.canReadTrigger?.(item) === false) throw new Error('Source authorization was revoked') }
+    if (name.startsWith('feishu/')) { const item = host.store.triggers.get(rest.split('/')[0]!); if (item && host.canReadTrigger?.(item) === false) throw new Error('Source authorization was revoked') }
     if (name.startsWith('ticket/')) { const item = host.store.tickets.get(rest.split('/')[0]!); if (item && host.canReadTicket?.(item) === false) throw new Error('Task source authorization was revoked') }
   }
   check()

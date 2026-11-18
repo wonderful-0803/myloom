@@ -14,6 +14,8 @@ export interface ExecutionBinding {
   /** A local path today. A future Runner must resolve workspaceId through its own resource grants. */
   directory: string
   controlRevision: number
+  /** Durable Runner Session fence supplied by the trusted worker lease. */
+  sessionEpoch?: number
 }
 type Job = { id: string; name: string }
 /** Typed intents, separate from the local implementation closures. These are not yet a wire protocol. */
@@ -81,6 +83,7 @@ export function executionRequest<K extends ExecutionOperation>(ticket: Ticket, s
 export function assertExecutionBinding(ticket: Ticket | undefined, binding: ExecutionBinding): void {
   if (!ticket) throw new ExecutionUnavailable('Execution task no longer exists')
   const current = executionRequest(ticket, binding.sessionId, binding.controlRevision, 'confirm-stopped', {}).binding
+  if (binding.sessionEpoch !== undefined) current.sessionEpoch = binding.sessionEpoch
   if (JSON.stringify(current) !== JSON.stringify(binding)) throw new ExecutionUnavailable('Execution binding changed; dispatch refused')
 }
 /** The shipped adapter: existing native implementations, with an explicit refusal for every non-local target. */

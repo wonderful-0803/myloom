@@ -1,6 +1,6 @@
 # 飞书助手：已接通的查询与控制
 
-更新：2026-11-03。继续使用现有“个人助手机器人”，不依赖待审批的新应用或飞书工作台。实现位于 `src/app/feishu-assistant.ts` 和 `src/app/feishu-mail.ts`。实际验收见 [联调记录](PERSONAL_ACCEPTANCE.md)。
+更新：2026-11-03。继续使用现有“登登的飞书 CLI”，不依赖待审批的新应用或飞书工作台。实现位于 `src/app/feishu-assistant.ts` 和 `src/app/feishu-mail.ts`。实际验收见 [联调记录](PERSONAL_ACCEPTANCE.md)。
 
 每条消息只执行一条指令；多行命令或多余参数会被拒绝。确认邮件须使用当前卡片或预览返回的完整指令。卡片需要应用已订阅 `card.action.trigger`；本轮核查原应用仍在发布审核中、回调列表为空且无法添加，所以当前部署继续使用文字入口，不显示无效按钮。
 

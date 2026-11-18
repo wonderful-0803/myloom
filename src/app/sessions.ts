@@ -18,6 +18,7 @@ import { bundledSkills } from './skill-files.ts'
 import { SKILL_PREFIX, type PromptVersion, type Prompts } from './prompts.ts'
 import type { Store } from './store.ts'
 import { KV } from '../kv.ts'
+import { groupWorkspace, groupMaster, inGroup } from '../group-mode.ts'
 import type { TaskControls } from './task-control.ts'
 import { assertExecutionBinding, executionRequest, executionTarget, ExecutionUnavailable, LocalExecutionPort, type ExecutionPort } from '../execution/port.ts'
 import type { RegisterTool, Tool } from './tools/tool.ts'
@@ -26,7 +27,7 @@ import type { RegisterTool, Tool } from './tools/tool.ts'
 export interface SessionsHost {
   /** DSH Cordis context: sessions, agents, persistence, and their events. */
   readonly context: Context
-  readonly store: Pick<Store, 'tickets' | 'settings' | 'get' | 'set' | 'keys'>
+  readonly store: Pick<Store, 'tickets' | 'triggers' | 'settings' | 'get' | 'set' | 'keys'>
   readonly prompts: Pick<Prompts, 'current' | 'version' | 'compose' | 'skills'>
   readonly effects: Pick<Effects, 'enqueue' | 'handle' | 'idle' | 'pending'>
   /** The `models` health entry, which reports managed sessions waiting on a model-budget retry. */
@@ -214,6 +215,7 @@ export class Sessions {
   }
   /** Returns a tool registrar for `agent` that renders tool output as JSON text and attaches `output.image` as an image when present. */
   private registerTool(agent: Agent, binding: SessionBinding): RegisterTool {
+    const space = groupWorkspace(this.host.store.settings())?.spaceId
     return (name, description, schema, execute) => {
       binding.disposers.push(agent.ctx.tools.register({ name, description, parameters: z.toJSONSchema(schema),
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => {
@@ -223,6 +225,31 @@ export class Sessions {
         } },
         execute: (args, execution) => {
           const parsed = schema.parse(args)
+          const group = groupWorkspace(this.host.store.settings())
+          if (space !== group?.spaceId) throw new Error('运行模式已变化，请等待会话重新绑定。')
+          if (group) {
+            const allowed = ['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report', 'orchestrator_ack', 'orchestrator_trigger_handback', 'orchestrator_transcribe_recording',
+              'orchestrator_route', 'orchestrator_eval', 'orchestrator_eval_read', 'orchestrator_eval_decide', 'orchestrator_reply', 'orchestrator_ticket_request_status', 'orchestrator_ticket_retry']
+            if (!allowed.includes(name)) throw new Error('共享模式不允许此工具；授权及资源接入由管理者配置。')
+            const check = (input: unknown): void => {
+              if (!input || typeof input !== 'object') return
+              const value = input as Record<string, unknown>
+              for (const [field, id] of Object.entries(value)) {
+                if (field === 'trigger_id' && typeof id === 'string') {
+                  const trigger = this.host.store.triggers.get(id)
+                  if (!trigger || !inGroup(trigger, group) || !groupMaster(group, trigger.actor.id)) throw new Error('请求不属于当前获授权主人。')
+                }
+                if (field === 'ticket_id' && typeof id === 'string') {
+                  const ticket = this.host.store.tickets.get(id), origin = ticket && this.host.store.triggers.get(ticket.origin.triggerId)
+                  if (!ticket || !origin || !inGroup(origin, group) || !groupMaster(group, ticket.mandate.actor.id)) throw new Error('任务不属于当前共享群。')
+                }
+                if (Array.isArray(id)) id.forEach(check)
+              }
+            }
+            check(parsed)
+            if (name === 'orchestrator_eval_read' && parsed && typeof parsed === 'object' && 'resource' in parsed
+              && ['file', 'directory', 'image'].includes(String(parsed.resource))) throw new Error('共享模式仅接入群文字；文件连接器尚未授权。')
+          }
           const target = this.ticketOf(agent)?.id ?? (parsed && typeof parsed === 'object' && 'ticket_id' in parsed
             && typeof parsed.ticket_id === 'string' ? parsed.ticket_id : undefined)
           if (!target || name === 'orchestrator_read' || !this.host.controls) return execute(parsed, execution.signal)
@@ -277,9 +304,13 @@ export class Sessions {
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
       const parent = scopeParentOf(agent)
-      const allow = ['skill', 'bash', 'pwsh', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'].filter(name => agent.ctx.tools.get(name, parent))
+      const space = groupWorkspace(host.store.settings())?.spaceId
+      const allow = space ? [] : ['skill', 'bash', 'pwsh', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'].filter(name => agent.ctx.tools.get(name, parent))
       binding.disposers.push(agent.ctx.tools.restrict({ allow }),
-        agent.ctx.tools.guard(execution => ['bash', 'pwsh'].includes(execution.name) && host.store.settings().sources.github?.enabled === false
+        agent.ctx.tools.guard(execution => space !== groupWorkspace(host.store.settings())?.spaceId ? '运行模式已变化，请等待调度会话重启'
+          : groupWorkspace(host.store.settings()) && !execution.name.startsWith('orchestrator_')
+          ? '群内共享模式只允许受控的群上下文和任务工具；不开放服务器文件、Shell 或私人连接器'
+          : ['bash', 'pwsh'].includes(execution.name) && host.store.settings().sources.github?.enabled === false
           ? 'The personal office router uses orchestrator_read for source data; its shell is disabled'
           : noWait(execution, () => this.routed(agent))))
     } else {
@@ -310,10 +341,17 @@ export class Sessions {
     const store = this.host.store
     const parent = scopeParentOf(agent)
     const codex = store.tickets.get(ticketId)?.mandate.actor.source === 'codex-daily'
-    const allow = codex ? [] : WORK_TOOLS.filter(name => agent.ctx.tools.get(name, parent))
+    const shared = !!store.tickets.get(ticketId)?.mandate.basis.scope?.loomSpace
+    const allow = codex || shared ? [] : WORK_TOOLS.filter(name => agent.ctx.tools.get(name, parent))
     const guard = (execution: { name: string }) => {
       if (codex && !['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report'].includes(execution.name)) return 'Codex daily reports allow scoped reads and reports only'
       const current = store.tickets.get(ticketId)
+      const group = groupWorkspace(store.settings()), space = current?.mandate.basis.scope?.loomSpace
+      if (group || space) {
+        if (!group || space !== group.spaceId || !current || !groupMaster(group, current.mandate.actor.id)) return '共享任务授权已撤销'
+        if (!['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report', 'orchestrator_ack', 'orchestrator_trigger_handback', 'orchestrator_transcribe_recording'].includes(execution.name))
+          return 'Loom 共享模式未接入此通用工具。生成 Word 请使用 orchestrator_report.document={format:"docx",filename:"report.docx"}；这不是飞书权限不足。其他未支持的能力需要开发接入。'
+      }
       if (this.host.controls?.held(ticketId)) return 'Task paused or under human control; only the operator can return it'
       return !current || !liveTicket(current) ? 'Ticket ended; new work needs a new authorized ticket' : undefined
     }

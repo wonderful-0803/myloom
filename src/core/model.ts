@@ -171,6 +171,8 @@ export interface Thread {
   correlated: string[]
   /** Triggers waiting for the next eval (debounce buffer). */
   pending: string[]
+  /** Optional fixed deadline for gathering a short burst of inputs before evaluating. */
+  evaluateAfter?: string
   evaluating?: Evaluation
   /** How many Evals of its queued Triggers expired in a row, each of which queued them again; a Decision clears it. */
   expired?: number
@@ -180,6 +182,8 @@ export interface Thread {
    */
   meta: Record<string, unknown>
 }
+export const pendingEvaluationDue = (thread: Thread, now: string): boolean =>
+  thread.pending.length > 0 && (!thread.evaluateAfter || thread.evaluateAfter <= now)
 /** Text in both interface languages, or the same text in both. */
 export type Text = string | { zh: string; en: string }
 /** One fact a Source states about its thread, such as an issue number or a CI result; `problem` marks one that needs a person. */

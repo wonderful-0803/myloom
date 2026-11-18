@@ -13,6 +13,8 @@ import type { Sessions } from './sessions.ts'
 import { setupChanged, type Setup } from './setup.ts'
 import type { Store } from './store.ts'
 import { KV } from '../kv.ts'
+import { groupWorkspace } from '../group-mode.ts'
+import { randomUUID } from 'node:crypto'
 
 /**
  * Indicates an optimistic concurrency conflict when saving or syncing a settings block against a stale revision.
@@ -39,6 +41,9 @@ const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'source', Block> = {
     },
     merge: (settings, value) => ({ ...settings, policy: value as SettingsValue['policy'] }),
     guard: (current, candidate, origin) => {
+      if (origin !== 'panel' && (JSON.stringify(current.policy.sources.feishu?.workspace) !== JSON.stringify(candidate.policy.sources.feishu?.workspace)
+        || groupWorkspace(current) && JSON.stringify(current.policy) !== JSON.stringify(candidate.policy)))
+        throw new SettingsPermissionError('共享模式与主人授权只能由管理者修改。')
       const delegated = (settings: SettingsValue) => settings.policy.rules.filter(rule => rule.delegation || rule.id.startsWith('loom-delegate-'))
       if (origin !== 'panel' && JSON.stringify(delegated(current)) !== JSON.stringify(delegated(candidate))) {
         throw new SettingsPermissionError('持续委托只能由本机所有者创建、修改或启停。')
@@ -56,13 +61,13 @@ const BLOCKS: Record<'policy' | 'eval' | 'executor' | 'source', Block> = {
     parse: (value, sources, id) => sources.validate(id, z.object({ enabled: z.boolean(), config: z.unknown() }).parse(value)),
     merge: (settings, value, id) => ({ ...settings, sources: { ...settings.sources, [id]: value as SettingsValue['sources'][string] } }),
     // Only the management panel may switch source accounts.
-    guard: (current, candidate, origin) => { if (origin !== 'panel' && setupChanged(current, candidate)) throw new UserError('panelOnlyAccounts') },
+    guard: (current, candidate, origin) => { if (origin !== 'panel' && (groupWorkspace(current) || setupChanged(current, candidate))) throw new UserError('panelOnlyAccounts') },
   },
 }
 
 /** Host dependencies used by `Settings`. */
 export interface SettingsHost {
-  readonly store: Pick<Store, 'settings' | 'saveSettings' | 'blockRevision' | 'atomic' | 'tickets' | 'get'>
+  readonly store: Pick<Store, 'settings' | 'saveSettings' | 'blockRevision' | 'atomic' | 'tickets' | 'get' | 'set'>
   readonly sources: SourceRegistry
   /** Notified when a settings save changes the policy version. */
   readonly engine: EngineForSettings
@@ -183,7 +188,8 @@ export class Settings {
       const delivery = await sessions.delivery(`settings:${block}`)
       return { saved: true, revision: store.blockRevision(block), policy_changed: false, restarting: false, context_delivery: delivery }
     }
-    const restarting = setupChanged(old, settings) || !this.host.setup.configured()
+    const modeChanged = (groupWorkspace(old)?.spaceId ?? '') !== (groupWorkspace(settings)?.spaceId ?? '')
+    const restarting = modeChanged || setupChanged(old, settings) || !this.host.setup.configured()
     const before = policyVersion(old), after = policyVersion(settings)
     const scope = (version: SettingsValue) => ({
       scope: (input: { source: string; meta: Record<string, unknown> }) => this.host.sources.scope(input, version) })
@@ -191,6 +197,7 @@ export class Settings {
     const notified = [...effects.keys()]
     store.atomic(() => {
       store.saveSettings(SettingsSchema.parse(settings), { source: origin, block, policyVersion: after, policyChanged: before !== after, notified })
+      if (modeChanged) store.set(KV.runtime.masterId, `orchestrator-${randomUUID()}`)
       recordRelated?.()
       if (origin !== 'tool') sessions.notify(...settingsNotice(block, changedPaths(old, settings)))
       if (before !== after) engine.policyChanged(before, after, effects)

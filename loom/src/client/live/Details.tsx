@@ -13,8 +13,11 @@ type Doc = { artifact: LoomArtifact; versions: Version[] };
 export type MailResult = { message: string; proposal?: LoomMail };
 
 function TaskDeliveryBlock({ task, version }: { task: LoomTask; version?: number }) {
-  const { locked, refresh } = useWorkspace();
-  const [delivery, setDelivery] = useTaskDelivery(task.id);
+  const { data, locked, refresh } = useWorkspace();
+  const shared = data.workspace?.mode === 'group';
+  const [delivery, setDelivery] = useTaskDelivery(shared ? undefined : task.id);
+  if (shared) return <section className="lv-block"><h3>交付方式</h3><p>报告定稿自动回到本群原线程。</p>
+    <ul className="lv-receipts">{data.resultDeliveries.filter(receipt => receipt.ticketId === task.id).map(receipt => <li key={receipt.id}>v{receipt.version} · {receipt.status} · {receipt.destination}</li>)}</ul></section>;
   if (!delivery) return null;
   const update = async (path: string, method: string, body: unknown, done: (next: TaskDelivery) => void) => {
     const next = await api<TaskDelivery>(path, method, body);
@@ -42,6 +45,8 @@ export function TaskSheet({ task, onClose }: { task: LoomTask; onClose: () => vo
   return <Sheet title={task.title} eyebrow={<Pill tone={state.tone}>{state.label}</Pill>} onClose={onClose}
     actions={<>
       {buttons.map(([action, label, primary]) => <button key={action} type="button" className={'lv-btn' + (primary ? ' is-primary' : '')} disabled={locked} onClick={() => void control(action)}>{label}</button>)}
+      {task.status === 'blocked' && data.workspace?.scopeFixed && data.workspace.canManage && <button type="button" className="lv-btn" disabled={locked}
+        onClick={() => void run(async () => { await api(`/tasks/${enc(task.id)}/recovery`, 'POST', {}); return '已检查恢复条件；请查看执行进展。'; })}>检查恢复</button>}
       <span className="lv-grow" />
       {report && <button type="button" className="lv-btn" onClick={() => openDoc(task.id)}>打开报告</button>}
     </>}>
@@ -78,8 +83,9 @@ export function DocSheet({ subject, version, onClose, onMail }: { subject: strin
   const editable = current && (a.kind === 'draft' || (task?.control.mode === 'human' && !task.control.pending));
   const author = a.author === 'human' ? (a.editedVia === 'loom' ? '本人在 Loom 编辑' : '本人编辑') : '助手生成';
   const exportText = () => run(async () => {
-    const value = await api<{ filename: string; content: string }>(`/artifacts/${enc(subject)}/export?version=${a.version}`);
-    const url = URL.createObjectURL(new Blob([value.content], { type: 'text/plain;charset=utf-8' }));
+    const value = await api<{ filename: string; content: string; encoding?: 'base64'; mediaType?: string }>(`/artifacts/${enc(subject)}/export?version=${a.version}`);
+    const bytes = value.encoding === 'base64' ? Uint8Array.from(atob(value.content), ch => ch.charCodeAt(0)) : value.content;
+    const url = URL.createObjectURL(new Blob([bytes], { type: value.mediaType || 'text/plain;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = value.filename; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
@@ -106,14 +112,14 @@ export function DocSheet({ subject, version, onClose, onMail }: { subject: strin
       <span className="lv-grow" />
       <button type="button" className="lv-btn is-primary" disabled={locked || !draft.trim()} onClick={() => void save()}>保存为新版本</button>
     </> : <>
-      <button type="button" className="lv-btn" disabled={locked} onClick={() => void exportText()}>导出 TXT</button>
+      <button type="button" className="lv-btn" disabled={locked} onClick={() => void exportText()}>{a.file ? '下载 Word' : '导出 TXT'}</button>
       {editable && <button type="button" className="lv-btn" disabled={locked} onClick={() => setDraft(a.body)}>编辑正文</button>}
       <span className="lv-grow" />
       {a.kind === 'draft' && <>
         <button type="button" className="lv-btn" disabled={locked} onClick={() => void decide('discard')}>忽略</button>
         <button type="button" className="lv-btn is-primary" disabled={locked || !current} onClick={() => void decide('confirm')}>确认草稿</button>
       </>}
-      {task?.completed && task.control.mode === 'agent' && current && <button type="button" className="lv-btn is-primary" disabled={locked} onClick={() => void mail()}>邮件预览</button>}
+      {data.workspace?.mode !== 'group' && task?.completed && task.control.mode === 'agent' && current && <button type="button" className="lv-btn is-primary" disabled={locked} onClick={() => void mail()}>邮件预览</button>}
     </>}>
     <p className="lv-fine">{a.kind === 'draft' ? '草稿只保存在这里，确认后也不会自动发到群或邮箱。' : '查看报告不会暂停任务；编辑前需要先接管任务。'}</p>
     {!current && latest && <Alert>正在查看旧版 v{a.version}，最新是 v{latest.version}。<button type="button" className="lv-link" onClick={() => openDoc(subject)}>看最新版</button></Alert>}
@@ -121,7 +127,7 @@ export function DocSheet({ subject, version, onClose, onMail }: { subject: strin
       ? <label className="lv-field"><span>新版正文，保存后旧版保留</span><textarea rows={18} maxLength={40000} value={draft} onChange={event => setDraft(event.target.value)} /></label>
       : <article className="lv-doc"><Markdown content={a.body} /></article>}
     {draft === null && task && current && <TaskDeliveryBlock task={task} version={task.completed ? a.version : undefined} />}
-    {draft === null && task?.completed && task.control.mode === 'agent' && a.author === 'agent' && !a.filename && <details className="lv-more">
+    {data.workspace?.mode !== 'group' && draft === null && task?.completed && task.control.mode === 'agent' && a.author === 'agent' && !a.filename && <details className="lv-more">
       <summary>登记任务目录里的完整报告</summary>
       <p className="lv-fine">旧任务可能只存了摘要。填写任务目录里已生成的 .md 或 .txt 文件，登记为新版本，不会重新执行或自动补发。</p>
       <div className="lv-inline"><input className="lv-input" value={file} maxLength={240} placeholder="例如 summary.md" onChange={event => setFile(event.target.value)} />

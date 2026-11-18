@@ -1,0 +1,30 @@
+{
+  "targetHarness": "0.2.1-rc.3",
+  "developmentTypes": "0.2.1-alpha.2",
+  "nativeSessionFormat": 4,
+  "providerStorageFormat": "loom-dsh-session-v1",
+  "verifiedAt": "2026-11-11",
+  "contractFiles": {
+    "index": {
+      "sha256": "dbaf738284416ceb76e365cf2844d50527750e4af97aaad2d3f4f1bd006faf5a",
+      "identicalToDevelopment": true
+    },
+    "handle": {
+      "sha256": "0218ad845fb8191dc46c507a41bc56587321236cb6a2a9ac25ef78f83a4ddcc5",
+      "identicalToDevelopment": true
+    },
+    "storage-contract": {
+      "sha256": "44be027eb9dfd3bc55c801d1b804b9699127ae238f5d1e56b5056094f115d80d",
+      "identicalToDevelopment": true
+    },
+    "errors": {
+      "sha256": "05f55d1e3f2a80ea89562ee327e50f2a6fe200611e51ec38c7715f4c97bdbdb9",
+      "identicalToDevelopment": true
+    },
+    "revision": {
+      "sha256": "c2e32b7f71b4c39652b7d1bdb78203e46d56fb7a42f9a2bcbc83232cdd7a937f",
+      "identicalToDevelopment": true
+    }
+  },
+  "scope": "B1 standalone native provider; not company deployment or full Agent recovery"
+}

@@ -16,8 +16,29 @@
     "./client": "./lib/client.js",
     "./github-watch": "./lib/github-watch.js",
     "./feishu-watch": "./lib/feishu-watch.js",
+    "./state": {
+      "types": "./lib/state.d.ts",
+      "default": "./lib/state.js"
+    },
+    "./company": "./lib/company.js",
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./dsh-state": {
+      "types": "./lib/dsh-state.d.ts",
+      "default": "./lib/dsh-state.js"
+    },
+    "./dsh-metadata": {
+      "types": "./lib/dsh-metadata.d.ts",
+      "default": "./lib/dsh-metadata.js"
+    },
+    "./execution": {
+      "types": "./lib/execution.d.ts",
+      "default": "./lib/execution.js"
+    },
+    "./runner": {
+      "types": "./lib/runner.d.ts",
+      "default": "./lib/runner.js"
+    }
   },
   "files": [
     "lib",
@@ -26,7 +47,48 @@
     "locale/*.json",
     "README.md",
     "prompts",
-    "skills"
+    "skills",
+    "scripts/state-admin.mjs",
+    "examples/loom-company.config.json",
+    "examples/loom-company.initial.json",
+    "examples/loom-company.cordis.patch.yml",
+    "docs/work-packages/COMPANY_PRODUCT.md",
+    "scripts/smoke-dsh-state.mjs",
+    "docs/work-packages/DSH_STATE_B1.md",
+    "docs/work-packages/DSH_STATE_B1_CONTRACT.json",
+    "scripts/fixtures/dsh-managed.mjs",
+    "docs/work-packages/DSH_STATE_B3.md",
+    "scripts/dsh-state-admin.mjs",
+    "docs/work-packages/DSH_STATE_B4.md",
+    "examples/loom-dsh-metadata.cordis.patch.yml",
+    "examples/loom-dsh-environment.json",
+    "scripts/fixtures/dsh-metadata.mjs",
+    "scripts/smoke-dsh-office.mjs",
+    "scripts/fixtures/dsh-office.mjs",
+    "scripts/fixtures/b5-presets.mjs",
+    "scripts/fixtures/b5-deny-shell.mjs",
+    "docs/work-packages/DSH_STATE_B5.md",
+    "scripts/native-attachment-io.mjs",
+    "docs/work-packages/DSH_STATE_B6.md",
+    "scripts/company-server.mjs",
+    "scripts/prepare-company-profile.mjs",
+    "examples/loom-company.service",
+    "scripts/company-login.mjs",
+    "scripts/company-profile-modules.mjs",
+    "scripts/runner-local.mjs",
+    "scripts/runner-connect.mjs",
+    "docs/work-packages/GATEWAY_RUNNER_C2.md",
+    "docs/work-packages/GATEWAY_RUNNER_C3.md",
+    "docs/work-packages/GATEWAY_RUNNER_C4_ACCEPTANCE.md",
+    "examples/loom-runner-connect.service",
+    "docs/WORKER_CAPABILITIES.md",
+    "scripts/smoke-runner-local.mjs",
+    "scripts/company-groups-server.mjs",
+    "scripts/smoke-company-groups.mjs",
+    "scripts/fixtures/group-bot.mjs",
+    "docs/MULTI_GROUP.md",
+    "scripts/company-lan-gateway.mjs",
+    "examples/loom-lan-gateway.service"
   ],
   "dsh": {
     "bundle": {
@@ -63,7 +125,24 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "pnpm typecheck && pnpm test && pnpm build"
+    "test:state": "vitest run tests/state-contract",
+    "state:inventory": "node --experimental-strip-types scripts/state-inventory.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "state:admin": "node scripts/state-admin.mjs",
+    "test:dsh-state": "vitest run tests/dsh-state",
+    "dsh-state:smoke": "node scripts/smoke-dsh-state.mjs",
+    "dsh-state:smoke:managed": "node scripts/smoke-dsh-state.mjs --managed",
+    "dsh-state:admin": "node scripts/dsh-state-admin.mjs",
+    "dsh-state:smoke:metadata": "node scripts/smoke-dsh-state.mjs --metadata",
+    "dsh-state:smoke:office": "node scripts/smoke-dsh-office.mjs",
+    "company:start": "node scripts/company-server.mjs",
+    "company:prepare": "node scripts/prepare-company-profile.mjs",
+    "company:login": "node scripts/company-login.mjs",
+    "runner:local": "node scripts/runner-local.mjs",
+    "runner:connect": "node scripts/runner-connect.mjs",
+    "runner:smoke": "node scripts/smoke-runner-local.mjs",
+    "company:groups": "node scripts/company-groups-server.mjs",
+    "company:groups:smoke": "node scripts/smoke-company-groups.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
@@ -72,6 +151,9 @@
   "packageManager": "pnpm@11.7.0",
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",
+    "docx": "9.5.1",
+    "marked": "17.0.1",
+    "pg": "8.16.3",
     "proper-lockfile": "4.1.2",
     "zod": "4.4.3"
   },
@@ -98,7 +180,8 @@
     "@deepseek-ai/dsh-system-prompt": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-tools": "^0.2.1-alpha.2",
     "@deepseek-ai/dsh-workspace": "^0.2.1-alpha.2",
-    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
+    "@deepseek-ai/dsh-storage": "^0.2.1-alpha.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5-alpha.1",
@@ -128,6 +211,7 @@
     "@deepseek-ai/schemastery": "3.18.5-alpha.1",
     "@types/jsdom": "28.0.3",
     "@types/node": "22.20.0",
+    "@types/pg": "8.16.0",
     "@types/proper-lockfile": "4.1.4",
     "@types/react": "18.3.28",
     "@types/react-dom": "18.3.7",
@@ -136,6 +220,7 @@
     "react-dom": "18.3.1",
     "tsdown": "0.22.14",
     "typescript": "6.0.3",
-    "vitest": "4.1.8"
+    "vitest": "4.1.8",
+    "@deepseek-ai/dsh-storage": "0.2.1-alpha.2"
   }
 }

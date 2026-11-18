@@ -29,6 +29,8 @@ export interface EffectPayloads {
   draft: Record<string, never>
   /** Scoped Codex daily snapshot intake; key binds owner, delegation and Shanghai day. */
   'codex-daily': Record<string, never>
+  'meeting-discover': Record<string, never>
+  'meeting-message': Record<string, never>
 }
 export type EffectKind = keyof EffectPayloads
 interface Handler<K extends EffectKind> {

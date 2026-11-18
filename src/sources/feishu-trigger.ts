@@ -11,6 +11,9 @@ export const feishuChannel = (chatId: string, messageId: string, direct = false)
 const EventSchema = z.object({ message_id: z.string(), chat_id: z.string(), chat_type: z.enum(['p2p', 'group']),
   sender_id: z.string(), sender_type: z.enum(['user', 'bot']), content: z.string(), create_time: z.string(),
   mentions: z.array(z.object({ id: z.string(), key: z.string().optional(), name: z.string().optional() })).default([]),
+  /** Set only by bounded history/topic reconciliation; live event payloads omit it. */
+  history: z.boolean().optional(),
+  message_type: z.string().optional(), msg_type: z.string().optional(),
   root_id: z.string().optional(), parent_id: z.string().optional(), reply_to: z.string().optional(), thread_id: z.string().optional(), message_app_link: z.url().optional() })
 export type FeishuEvent = z.infer<typeof EventSchema>
 export const feishuThreadId = (chatId: string, rootId: string | undefined, messageId: string): string => `${chatId}:${rootId ?? messageId}`
@@ -35,13 +38,19 @@ export function feishuTrigger(input: unknown, botId: string, botAppId: string): 
   const mentioned = event.mentions.some(mention => mention.id === botId || mention.id === botAppId)
   const thread = feishuThreadId(event.chat_id, event.root_id, event.message_id)
   const parent = event.parent_id ?? event.reply_to
+  const messageType = event.message_type ?? event.msg_type
+  const meta: Record<string, unknown> = { chatId: event.chat_id, messageId: event.message_id, direct, mentioned, ...(['audio', 'file'].includes(messageType ?? '') ? { messageType } : {}), ...(event.root_id ? { rootId: event.root_id } : {}),
+    ...(parent ? { parentId: parent } : {}), ...(event.thread_id ? { threadId: event.thread_id } : {}) }
+  // Keep this reconciliation marker out of the durable trigger's semantic
+  // hash and public JSON shape. It is only used during this ingest call to
+  // distinguish a history/live representation of the same Feishu message.
+  if (event.history) Object.defineProperty(meta, 'history', { value: true, enumerable: false })
   return { id: feishuTriggerId(event.message_id), source: SOURCE, threads: [{ source: SOURCE, id: thread }],
     actor: { source: SOURCE, id: event.sender_id }, human: event.sender_type === 'user',
     ...(direct ? { addressed: 'direct' as const } : mentioned ? { addressed: 'mention' as const } : {}),
     at: feishuTime(event.create_time), text: withMentionNames(event.content, event.mentions),
     channel: feishuChannel(event.chat_id, event.message_id, direct), ...(event.message_app_link ? { url: event.message_app_link } : {}),
-    meta: { chatId: event.chat_id, messageId: event.message_id, direct, mentioned, ...(event.root_id ? { rootId: event.root_id } : {}),
-      ...(parent ? { parentId: parent } : {}), ...(event.thread_id ? { threadId: event.thread_id } : {}) } }
+    meta }
 }
 export const feishuParent = (trigger: Trigger): string | undefined =>
   trigger.source === SOURCE && typeof trigger.meta.parentId === 'string' ? feishuTriggerId(trigger.meta.parentId) : undefined
@@ -54,6 +63,7 @@ export function feishuRef(trigger: Trigger): FeishuRef | undefined {
 /** A message from the history API; a deleted message may have no body/content. */
 export const HistoricalMessageSchema = z.looseObject({
   message_id: z.string(), chat_id: z.string(), create_time: z.string(),
+  msg_type: z.string().optional(),
   root_id: z.string().optional(), parent_id: z.string().optional(), thread_id: z.string().optional(),
   deleted: z.boolean().optional(), message_app_link: z.string().optional(),
   sender: z.looseObject({ id: z.string().default(''), sender_type: z.string() }),
@@ -75,7 +85,7 @@ export function historyText(message: HistoricalMessage): string {
 export function historyEvent(message: HistoricalMessage, chatId: string, direct: boolean): unknown {
   return { message_id: message.message_id, chat_id: chatId, chat_type: direct ? 'p2p' : 'group', create_time: message.create_time,
     sender_id: message.sender.id, sender_type: message.sender.sender_type === 'user' ? 'user' : 'bot', content: historyText(message),
-    mentions: message.mentions ?? [], root_id: message.root_id, parent_id: message.parent_id, thread_id: message.thread_id,
+    mentions: message.mentions ?? [], history: true, msg_type: message.msg_type, root_id: message.root_id, parent_id: message.parent_id, thread_id: message.thread_id,
     message_app_link: message.message_app_link }
 }
 /**
@@ -85,6 +95,6 @@ export function historyEvent(message: HistoricalMessage, chatId: string, direct:
 export function topicEvent(message: FeishuMessage, chatId: string, direct: boolean, root: string): unknown {
   return { message_id: message.message_id, chat_id: chatId, chat_type: direct ? 'p2p' : 'group', create_time: message.create_time,
     sender_id: message.sender.open_bot_id ?? message.sender.id, sender_type: message.sender.sender_type === 'user' ? 'user' : 'bot',
-    content: message.content ?? '', mentions: message.mentions ?? [], parent_id: message.parent_id ?? message.reply_to, thread_id: message.thread_id,
+    content: message.content ?? '', msg_type: message.msg_type, mentions: message.mentions ?? [], history: true, parent_id: message.parent_id ?? message.reply_to, thread_id: message.thread_id,
     root_id: message.root_id ?? (message.message_id === root ? undefined : root), message_app_link: message.message_app_link }
 }

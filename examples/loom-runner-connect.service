@@ -1,0 +1,27 @@
+[Unit]
+Description=Loom Linux Runner (active TLS connection)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=loom-runner
+Group=loom-runner
+Environment=HOME=/var/lib/loom-runner
+WorkingDirectory=/var/lib/loom-runner
+ExecStart=/usr/bin/node /opt/loom/current/scripts/runner-connect.mjs --home /var/lib/loom-runner --ca /etc/loom/gateway/ca.pem --host 192.168.0.158 --port 3443 --servername loom-gateway.local
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/loom-runner
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

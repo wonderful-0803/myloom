@@ -1,6 +1,7 @@
 /** Feishu source kind definition, policy synchronization, and Cordis plugin entry. */
 import type { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
+import { GroupWorkspaceSchema, groupMaster } from '../group-mode.ts'
 import { FeishuBotSchema } from '../deployment.ts'
 import { feishuLink, sendFeishu } from './feishu-channel.ts'
 import { feishuThreadContext } from './feishu-read.ts'
@@ -42,7 +43,8 @@ export const feishuKind: SourceKind<FeishuConfig> = {
   title: { zh: '飞书', en: 'Feishu' },
   description: { zh: '接收下列群和私聊中发给机器人的消息，补收群历史并轮询订阅的线程。', en: 'Receives messages to the bot in these chats and direct messages, recovers chat history and polls subscribed Threads.' },
   schema: FeishuConfigSchema,
-  actorAllowed: (actor, config, allowed) => !config.ownerOnly || allowed.some(person => person.id === actor.id),
+  actorAllowed: (actor, config, allowed, policy) => policy?.workspace
+    ? groupMaster(GroupWorkspaceSchema.parse(policy.workspace), actor.id) : !config.ownerOnly || allowed.some(person => person.id === actor.id),
   fields: [
     { key: 'cardsEnabled', type: 'switch', advanced: true, label: { zh: '交互卡片', en: 'Interactive cards' },
       hint: { zh: '需在应用回调配置中订阅 card.action.trigger；仅真实所有者可点击，旧版本操作失效。', en: 'Requires card.action.trigger in app callback configuration; only the real owner can act.' } },
@@ -76,7 +78,15 @@ export const feishuKind: SourceKind<FeishuConfig> = {
   ],
   health: ['feishu', 'history', 'cards'],
   activeHealth: config => config.cardsEnabled ? ['feishu', 'history', 'cards'] : ['feishu', 'history'],
-  scope({ meta }, config) {
+  scope({ meta, actor }, config, policy) {
+    if (policy?.workspace) {
+      const group = GroupWorkspaceSchema.parse(policy.workspace)
+      if (meta.direct === true || meta.chatId !== group.chatId || actor && (meta.loomSpace !== group.spaceId || !groupMaster(group, actor.id)))
+        return { listened: false, reason: 'chat_not_allowed' }
+      const chat = config.chats.find(chat => chat.chatId === group.chatId)
+      return chat ? { listened: true, observed: chat.listen === 'all', row: chat.chatId } : { listened: false, reason: 'chat_not_allowed' }
+    }
+    if (meta.loomSpace) return { listened: false, reason: 'chat_not_allowed' }
     if (meta.direct === true) return config.directMessages ? { listened: true, observed: false, row: 'direct' } : { listened: false, reason: 'direct_messages_not_allowed' }
     const chat = config.chats.find(item => item.chatId === meta.chatId)
     if (chat) return { listened: true, observed: chat.listen === 'all', row: chat.chatId }
@@ -84,8 +94,8 @@ export const feishuKind: SourceKind<FeishuConfig> = {
   },
   // A reply goes only to a chat the Source still receives.
   channel: {
-    allowed: (address, config) =>
-      feishuKind.scope!({ meta: { chatId: address.chatId ?? '', direct: address.direct === 'true' } }, config).listened,
+    allowed: (address, config, policy) =>
+      feishuKind.scope!({ meta: { chatId: address.chatId ?? '', direct: address.direct === 'true' } }, config, policy).listened,
     send: sendFeishu, link: feishuLink,
   },
   threadContext: feishuThreadContext,
@@ -95,6 +105,7 @@ export const feishuKind: SourceKind<FeishuConfig> = {
   policy: {
     unnamed: { person: { zh: '飞书用户', en: 'Feishu user' }, bot: { zh: '飞书机器人', en: 'Feishu bot' } },
     schema: z.object({
+      workspace: GroupWorkspaceSchema.optional(),
       allowed: z.array(z.object({ id: z.string().regex(/^ou_[a-zA-Z0-9]+$/), name: z.string().trim().max(100).optional() }).strict())
         .refine(users => new Set(users.map(user => user.id)).size === users.length, 'Duplicate open_ids').default([]),
       syncChat: z.string().regex(/^(oc_[a-zA-Z0-9]+)?$/).default(''),
@@ -126,8 +137,9 @@ export const feishuKind: SourceKind<FeishuConfig> = {
     },
     sync: {
       label: { zh: '立即同步', en: 'Sync now' },
-      ready: part => !!part.syncChat,
+      ready: part => !part.workspace && !!part.syncChat,
       async run(host, part, signal) {
+        if (part.workspace) throw new Error('共享主人名单由管理者选择，不从群成员自动扩充。')
         const commands = sourceContext(host, feishuKind).commands.withSignal(signal)
         const chat = String(part.syncChat)
         const members = ['im', '+chat-members-list', '--chat-id', chat, '--member-types', 'user', '--page-all', '--page-limit', '0']

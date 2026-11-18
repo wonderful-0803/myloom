@@ -1,0 +1,17 @@
+# Explicit replacement profile patch. Keep the bundle's worker/router presets.
+# Do not append this to a running personal profile. Back up and stop the sole old writer first.
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3084
+- id: dsh-superagent
+  disabled: true
+- id: dsh-superagent-github
+  disabled: true
+- id: dsh-superagent-feishu
+  disabled: true
+- insert:
+    - id: loom-company-entry
+      name: dsh-superagent/company
+      config:
+        configFile: /etc/loom/company.json

@@ -1,18 +1,33 @@
+import { requestId as newRequestId } from './request-id';
 /** Workspace API client and shared labels for the live Loom page. Paths and payloads match src/app/loom.ts. */
 import type { LoomTask } from '../../../../src/app/loom-types';
 
 const base = '/orchestrator/api/loom';
+const companyServer = () => document.querySelector('meta[name="loom-product-server"]') !== null;
+let login: Promise<{ csrf: string }> | undefined;
+async function csrf(): Promise<string> {
+  login ??= fetch('/auth/session', { credentials: 'same-origin', cache: 'no-store' }).then(async response => {
+    if (!response.ok) { login = undefined; if (response.status === 401) location.assign('/auth/login'); throw new Error('请登录飞书并确认当前授权。'); }
+    return response.json() as Promise<{ csrf: string }>;
+  });
+  return (await login).csrf;
+}
 
 export type Request = <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => Promise<T>;
 
 export const api: Request = async <T,>(path = '', method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> => {
-  const response = await fetch(base + path, {
-    method, signal,
-    headers: { 'x-orchestrator-request': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+  const writes = !['GET', 'HEAD'].includes(method), server = companyServer();
+  const url = new URL(base + path, location.origin);
+  const workspace = new URLSearchParams(location.search).get('workspace');
+  if (server && workspace && !url.searchParams.has('workspace')) url.searchParams.set('workspace', workspace);
+  const response = await fetch(url.pathname + url.search, {
+    method, signal, credentials: 'same-origin',
+    headers: { 'x-orchestrator-request': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      ...(server && writes ? { 'x-loom-csrf': await csrf(), 'idempotency-key': newRequestId() } : {}) },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || '请求未完成，请刷新后重试。');
+  if (!response.ok) { if (server && response.status === 401 && data.login === '/auth/login') { login = undefined; location.assign('/auth/login'); } throw new Error(data.error || '请求未完成，请刷新后重试。'); }
   return data as T;
 };
 
@@ -40,7 +55,7 @@ export function taskState(task: LoomTask, paused: boolean): { label: string; ton
   if (task.completed) return { label: '已完成', tone: 'done' };
   if (task.status === 'blocked') return { label: '需要处理', tone: 'attn' };
   if (task.status === 'ended') return { label: '已结束', tone: 'off' };
-  if (paused) return { label: '等待全局恢复', tone: 'wait' };
+  if (paused) return { label: '等待后台恢复', tone: 'wait' };
   if (task.executionState === 'queued') return { label: '等待 Worker', tone: 'wait' };
   if (task.executionState === 'waiting') return { label: '等待补充', tone: 'wait' };
   return { label: '执行中', tone: 'run' };

@@ -178,6 +178,17 @@ export class Tickets extends EnginePart {
     this.options.executor.start(ticket, assignment)
     return ticket
   }
+  /** Re-open a completed ticket for an explicit owner-requested rerun, preserving its ID, sources and artifact history. */
+  rerun(ticketId: string, note: string): Ticket {
+    const ticket = this.require(ticketId)
+    if (liveTicket(ticket) || !ticket.ended || !['completed', 'closed'].includes(ticket.ended.outcome)) throw new UserError('notRetryable')
+    delete ticket.ended
+    const at = this.now(), input: TicketInput = { id: key('input', ticketId, 'rerun', at, note), kind: 'text', text: note, at }
+    ticket.inputs.push(input); ticket.undelivered = [input.id]
+    const assignment = this.newAssignment(ticket); ticket.updatedAt = at
+    this.repo.tickets.save(ticket); this.options.executor.start(ticket, assignment)
+    return ticket
+  }
   /**
    * Drops a ticket's Subscription to a Thread its worker found unrelated, and hands back, with `reason`, the person's messages there that the ticket decides.
    * @throws UserError when the ticket is unknown, or `thread` is an origin thread, a bound `follows` thread, or not subscribed.

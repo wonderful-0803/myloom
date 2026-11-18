@@ -7,6 +7,8 @@ import { Config, machineOf, type DeploymentConfig } from './deployment.ts'
 export const name = 'dsh-superagent'
 export const inject = ['agents', 'sessionController', 'sessionPersistence', 'workspaceRegistry', 'permissionPresets', 'tools', 'systemPrompt', 'skills', 'webServer', 'llm', 'subprocess']
 export { Config }
+export * from './execution/gateway.ts'
+export * from './execution/tls.ts'
 export async function apply(ctx: Context, config: DeploymentConfig): Promise<void> {
   const machine = machineOf(config)
   // The management panel provides its own settings UI, so disable DSH's auto-generated settings page.

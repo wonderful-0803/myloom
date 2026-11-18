@@ -9,6 +9,7 @@ import type { SourceRegistry } from '../sources/registry.ts'
 import type { Store } from './store.ts'
 import type { CodexHistory } from './codex-history.ts'
 import { Later, type Effects } from './effects.ts'
+import { groupWorkspace } from '../group-mode.ts'
 
 export interface CodexDailyRun {
   id: string; owner: string; delegationId: string; date: string; scopeKey: string; grantKey: string; generation: string
@@ -25,7 +26,7 @@ const grantKey = (rule: Rule) => key('codex-daily-grant', rule.delegation!.owner
 /** Only the current single personal owner can authorize local Codex data for a report. */
 export function codexPersonalOwner(store: Store, sources: SourceRegistry): string | undefined {
   const people = sources.policyPart('feishu')?.allowed ?? []
-  return store.settings().sources.github?.enabled === false && sources.instance('feishu')?.enabled === true
+  return !groupWorkspace(store.settings()) && store.settings().sources.github?.enabled === false && sources.instance('feishu')?.enabled === true
     && feishuSettings(sources).ownerOnly && people.length === 1 ? people[0]?.id : undefined
 }
 /** Keeps raw snapshots out of the global day-view grant and never starts, resumes or prompts Codex. */

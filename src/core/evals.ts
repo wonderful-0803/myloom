@@ -71,6 +71,7 @@ export class Evals extends EnginePart {
   start(threadKeyValue: string, policy: Policy): void {
     const thread = this.repo.threads.get(threadKeyValue)!
     const at = this.now()
+    delete thread.evaluateAfter
     // A person's follow-up a ticket still decides is that ticket's: one an older version queued leaves the queue without a Decision.
     const delivered = (id: string) => {
       const trigger = this.repo.triggers.get(id)
@@ -218,7 +219,7 @@ export class Evals extends EnginePart {
   }
   /** Start the Evals in progress again under the new Policy version, and say that it changed. */
   policyChanged(from: string, to: string): void {
-    for (const thread of this.repo.threads.active()) if (thread.evaluating) this.reassess(thread, { code: 'policyChanged' })
+    for (const thread of this.repo.threads.active()) if (thread.evaluating && thread.evaluating.policyVersion !== to) this.reassess(thread, { code: 'policyChanged' })
     this.emit('policy.changed', { from, to })
   }
   /** End a Thread's Eval as unavailable for `reason` and queue its Triggers, except `without`, for a new Eval ahead of the others. */

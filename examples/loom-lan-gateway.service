@@ -1,0 +1,20 @@
+[Unit]
+Description=Loom explicitly enabled LAN workbench
+After=network-online.target loom.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=loom
+Group=loom
+ExecStart=/opt/loom/runtime/bin/node /opt/loom/current/app/scripts/company-lan-gateway.mjs --origin https://192.168.0.158:3444 --upstream http://127.0.0.1:3084 --subnet 192.168.0.0/21 --tls-key /var/lib/loom/company/lan-gateway/tls/server.key --tls-cert /var/lib/loom/company/lan-gateway/tls/server.crt
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

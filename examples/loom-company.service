@@ -1,0 +1,29 @@
+[Unit]
+Description=Loom company product and SQL-backed DSH compute
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=loom
+Group=loom
+WorkingDirectory=/opt/loom/current/app
+Environment=PATH=/opt/loom/runtime/bin:/usr/bin:/bin
+Environment=HOME=/var/lib/loom
+Environment=DSH_HOME=/var/lib/loom/company-dsh
+Environment=DSH_AGENTS_HOME=/var/lib/loom/agents
+EnvironmentFile=/etc/loom/company.env
+ExecStart=/opt/loom/runtime/bin/node /opt/loom/current/app/scripts/company-server.mjs --profile /etc/loom/company-profile.json --harness-root /opt/loom/current/toolchain/node_modules/@deepseek-ai/dsh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=300
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/loom
+
+[Install]
+WantedBy=multi-user.target

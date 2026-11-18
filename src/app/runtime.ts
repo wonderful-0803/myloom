@@ -50,7 +50,9 @@ import { desktopFeishuConfig, FeishuUserConfig } from '../sync/feishu-config.ts'
 import { FeishuAssistant } from './feishu-assistant.ts'
 import { Artifacts } from './artifacts.ts'
 import { LoomWorkspace } from './loom.ts'
+import { groupWorkspace, groupMaster } from '../group-mode.ts'
 import { Delegations } from './delegations.ts'
+import { Meetings } from './meetings.ts'
 import { QuietDrafts } from './quiet-drafts.ts'
 import { Passes } from './passes.ts'
 import { Setup } from './setup.ts'
@@ -97,6 +99,7 @@ export class Runtime extends Service implements SourceHost {
   readonly quietDrafts: QuietDrafts
   readonly loom: LoomWorkspace
   readonly delegations: Delegations
+  readonly meetings: Meetings
   readonly engine: Engine
   readonly passes: Passes
   readonly ready: Promise<void>
@@ -129,6 +132,8 @@ export class Runtime extends Service implements SourceHost {
       const controls = this.controls = new TaskControls({ store,
         canResume: id => {
           const ticket = store.tickets.get(id)
+          if (ticket && (groupWorkspace(store.settings()) || ticket.mandate.basis.scope?.loomSpace))
+            return this.artifacts.canReadContext(ticket, ticket.mandate.actor.id) && settingsPolicy(store.settings(), this.sources).revalidate(ticket.mandate)
           return !ticket || ticket.mandate.strength !== 'inferred' || !ticket.mandate.basis.rules?.some(rule => rule.startsWith('loom-delegate-'))
             || settingsPolicy(store.settings(), this.sources).revalidate(ticket.mandate)
         },
@@ -158,17 +163,27 @@ export class Runtime extends Service implements SourceHost {
           .catch(() => { /* sync() records its failure in health. */ })
         return () => {}
       })
-      const artifacts = this.artifacts = new Artifacts({ store, sources, controls })
+      const artifacts = this.artifacts = new Artifacts({ store, sources, controls, recordingAllowed: ticket => this.meetings?.mayRead(ticket) ?? true,
+        recordingEvidence: ticket => this.meetings?.evidence(ticket.id) })
       const quietDrafts = this.quietDrafts = new QuietDrafts({ context: ctx, store, sources, effects, artifacts,
         lifetime: this.lifetime, configured: () => setup.configured() })
       const links: LinkHost = { store, links: this.sourceLinks, commands, sources, lifetime: this.lifetime }
       const link = (trigger: Trigger, signal?: AbortSignal) => sourceLink(links, trigger, signal)
       const environment = (ticket: Ticket) => this.ticketEnvironment(ticket)
       const resources: ResourceHost = { store, pages: new TextCache(4_000_000), prompts, commands, masterId, context: ctx,
+        recordingTranscript: (id, offset, limit) => this.meetings.transcript(id, offset, limit),
         promptVersion: id => this.sessions.promptVersion(id), mayRead: (id, revision) => this.sessions.mayRead(id, revision),
         feishuPageSize: () => feishuSettings(sources).readPageSize, sourceLink: link,
-        canReadTrigger: trigger => trigger.source !== 'codex-daily' || artifacts.sourceAllowed(trigger, trigger.actor.id),
-        canReadTicket: ticket => ticket.mandate.actor.source !== 'codex-daily' || artifacts.canReadContext(ticket, ticket.mandate.actor.id) }
+        recordGroupContext: (id, triggers) => {
+          const ids = [...new Set([...(store.get(KV.group.reads(id)) ?? []), ...triggers.map(trigger => trigger.id)])]
+          if (ids.length > 500) throw new Error('当前任务最多召回 500 条群消息，请缩小时间范围或拆分任务。')
+          store.set(KV.group.reads(id), ids)
+        },
+        canReadTrigger: trigger => groupWorkspace(store.settings()) ? artifacts.sourceAllowed(trigger, groupWorkspace(store.settings())!.operator)
+          : !trigger.meta.loomSpace && (trigger.source !== 'codex-daily' || artifacts.sourceAllowed(trigger, trigger.actor.id)),
+        canReadTicket: ticket => groupWorkspace(store.settings()) || ticket.mandate.basis.scope?.loomSpace
+          ? artifacts.canReadContext(ticket, ticket.mandate.actor.id)
+          : ticket.mandate.actor.source !== 'codex-daily' || artifacts.canReadContext(ticket, ticket.mandate.actor.id) }
       const sessions = this.sessions = new Sessions({ context: ctx, store, prompts, effects, health: board.claim('models'), masterId,
         lifetime: this.lifetime, controls, execution,
         closing: () => this.closing(), environment,
@@ -176,6 +191,8 @@ export class Runtime extends Service implements SourceHost {
       const revalidateControls = () => {
         const policy = settingsPolicy(store.settings(), sources)
         for (const ticket of store.tickets.open()) {
+          if ((groupWorkspace(store.settings()) || ticket.mandate.basis.scope?.loomSpace) && !artifacts.canReadContext(ticket, ticket.mandate.actor.id)
+            && controls.view(ticket.id).mode === 'agent') controls.change(ticket.id, 'pause', controls.view(ticket.id).revision)
           if (ticket.mandate.strength === 'inferred' && ticket.mandate.basis.rules?.some(id => id.startsWith('loom-delegate-'))
             && !policy.revalidate(ticket.mandate) && controls.view(ticket.id).mode === 'agent') controls.change(ticket.id, 'pause', controls.view(ticket.id).revision)
         }
@@ -202,11 +219,15 @@ export class Runtime extends Service implements SourceHost {
             if (decision) quietDrafts.observe(decision)
           }
           // Notify the main Session only about domain events it did not initiate itself.
-          const notice = this.quiet ? undefined : eventNotice(event, id => store.tickets.get(id))
+          const group = groupWorkspace(store.settings()), eventTicket = 'ticketId' in event.data && typeof event.data.ticketId === 'string' ? store.tickets.get(event.data.ticketId) : undefined
+          const eventTrigger = 'triggerId' in event.data && typeof event.data.triggerId === 'string' ? store.triggers.get(event.data.triggerId) : undefined
+          const visible = !group || (eventTicket ? artifacts.canReadContext(eventTicket, group.operator)
+            : eventTrigger ? artifacts.sourceAllowed(eventTrigger, group.operator) : true)
+          const notice = this.quiet || !visible ? undefined : eventNotice(event, id => store.tickets.get(id))
           if (notice) sessions.notify(...notice)
           // A person's message that reached an open ticket is the ticket's; the main Session hears of it in the same transaction,
           // and of one for an ended ticket once it resumes, unless it routed the message there itself.
-          const followed = !this.quiet && (event.type === 'trigger.received' || event.type === 'ticket.resumed' || event.type === 'trigger.followup')
+          const followed = visible && !this.quiet && (event.type === 'trigger.received' || event.type === 'ticket.resumed' || event.type === 'trigger.followup')
           const followup = followed ? followupNotice(store, sources, event.data.triggerId) : undefined
           if (followup) sessions.relay(followup.id, followup.text)
           // Notify the ticket's conversations whenever it ends via a pull request.
@@ -223,7 +244,7 @@ export class Runtime extends Service implements SourceHost {
         health: this.runtimeHealth, lifetime: this.lifetime, configured: () => setup.configured(), closing: () => this.closing() })
       this.feishuAssistant = new FeishuAssistant({ store, controls, sources, effects, commands, artifacts, quietDrafts, stateDir: machine.stateDir, configured: () => setup.configured() })
       this.resultDelivery = new ResultDelivery({ store, sources, controls, artifacts, effects, commands, mail: this.feishuAssistant.mail,
-        stateDir: machine.stateDir, paused: () => this.paused() })
+        stateDir: machine.stateDir, paused: () => this.paused(), validateSource: id => this.meetings.validateSource(id) })
       this.codexHistory = new CodexHistory({ store, lifetime: this.lifetime })
       const syncData = new SyncDatabase(join(machine.stateDir, 'device-sync', 'local.sqlite'))
       this.deviceSync = new DeviceSync(syncData, { owner: () => this.loom.owner(), paused: () => this.paused(), lifetime: this.lifetime })
@@ -236,23 +257,25 @@ export class Runtime extends Service implements SourceHost {
         owner: () => this.loom.owner(), appId: () => setup.deployment.feishu?.appId ?? '', paused: () => this.paused(), lifetime: this.lifetime })
       this.disposers.push(() => feishuData.close())
       this.codexDaily = new CodexDaily({ store, sources, effects, history: this.codexHistory, engine, lifetime: this.lifetime, configured: () => setup.configured(), paused: () => this.paused() })
+      this.meetings = new Meetings({ store, sources, effects, commands, controls, engine, stateDir: machine.stateDir,
+        lifetime: this.lifetime, configured: () => setup.configured(), paused: () => this.paused(), pass: trigger => passes.receive(trigger) })
       this.delegations = new Delegations({ store, sources, settings: this.settings, codexDaily: this.codexDaily })
       this.progress = new TaskProgress({ store, controls, inspect: async (id, signal) => {
         const history = await ctx.sessionController.inspect(workerSessionId(id) as SessionId, signal)
         return history.events.slice(history.inheritedEventCount ?? 0)
       } })
       this.loom = new LoomWorkspace({ store, controls, sources, artifacts, quietDrafts, mail: this.feishuAssistant.mail,
-        delegations: this.delegations, settings: this.settings, progress: this.progress, resultDelivery: this.resultDelivery, codexHistory: this.codexHistory, codexDaily: this.codexDaily, deviceSync: this.deviceSync, feishuSync: this.feishuSync,
-        health: () => this.health, configured: () => setup.configured(), deployment: () => setup.deployment, syncPort: () => ctx.webServer.port })
+        meetings: this.meetings, delegations: this.delegations, settings: this.settings, progress: this.progress, resultDelivery: this.resultDelivery, codexHistory: this.codexHistory, codexDaily: this.codexDaily, deviceSync: this.deviceSync, feishuSync: this.feishuSync,
+        commands, health: () => this.health, configured: () => setup.configured(), deployment: () => setup.deployment, syncPort: () => ctx.webServer.port })
       this.sourceDeps = { store, engine, outbox, commands, sources, get ready() { return runtime.ready },
         get deployment() { return setup.deployment }, configured: () => setup.configured(),
         get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem }, receive: trigger => this.receive(trigger),
         cardAction: event => this.closing() ? 'filtered' : this.feishuAssistant.receiveCard(event) }
-      this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources, controls, artifacts, resultDelivery: this.resultDelivery,
+      this.toolHost = { context: ctx, engine, store, prompts, sessions, settings: this.settings, assessor, resources, controls, artifacts, resultDelivery: this.resultDelivery, meetings: this.meetings,
         get github() { return runtime.context({ kind: 'github', health: ['github'] }) },
         requestPass: () => { passes.request() }, sendReplies: () => outbox.sent(),
         quietly: run => { this.quiet++; try { return run() } finally { this.quiet-- } } }
-      this.ready = this.initialize()
+      this.ready = this.initialize(revalidateControls)
     } catch (error) {
       // Release the database and state lock if initialization fails so an in-process restart can reacquire them.
       for (const dispose of this.disposers.reverse()) dispose()
@@ -283,7 +306,25 @@ export class Runtime extends Service implements SourceHost {
   checkSetup(): void { this.setup.check() }
   receive(trigger: Trigger): ReceiveResult {
     if (this.closing()) throw new Error('Orchestrator is stopping')
-    return this.feishuAssistant.receive(trigger) ?? this.passes.receive(trigger)
+    const group = groupWorkspace(this.store.settings())
+    if (group) {
+      if (trigger.source !== 'feishu' || trigger.actor.source !== 'feishu' || trigger.meta.direct === true || trigger.meta.chatId !== group.chatId
+        || trigger.channel?.source !== 'feishu' || trigger.channel.address.chatId !== trigger.meta.chatId || trigger.channel.address.messageId !== trigger.meta.messageId
+        || !Number.isFinite(Date.parse(trigger.at)) || Date.parse(trigger.at) < Date.parse(group.since)) return 'filtered'
+      // This stamp is assigned by trusted intake, never inferred from message text or model output.
+      const previous = this.store.triggers.get(trigger.id)
+      if (previous) return 'duplicate'
+      trigger = { ...trigger, meta: { ...trigger.meta, loomSpace: group.spaceId } }
+      if (!this.sources.scope({ source: trigger.source, meta: trigger.meta }).listened) return 'filtered'
+      if (!trigger.human || !groupMaster(group, trigger.actor.id)) {
+        if (!trigger.human) return 'filtered'
+        // Preserve discussion as source material without evaluating, waking workers or replying.
+        trigger = { ...trigger, meta: { ...trigger.meta, groupContextOnly: true } }
+        this.store.atomic(() => { this.store.triggers.save(trigger); this.store.triggers.saveDisposition(trigger.id, { fanout: [], at: new Date().toISOString() }) })
+        return 'stored'
+      }
+    } else if (trigger.meta.loomSpace) return 'filtered'
+    return this.meetings.receive(trigger) ?? this.feishuAssistant.receive(trigger) ?? this.passes.receive(trigger)
   }
   idle(): Promise<void> { return this.passes.idle() }
   pump(): Promise<void> { return this.passes.pump() }
@@ -291,7 +332,7 @@ export class Runtime extends Service implements SourceHost {
   private closing(): boolean { return this.closingFlag }
   /** Hold evaluation, dispatch, and outbound delivery while paused or awaiting setup; sources still record incoming triggers. */
   private paused(): boolean { return !this.setup.configured() || this.store.settings().paused }
-  private async initialize(): Promise<void> {
+  private async initialize(revalidateControls: () => void): Promise<void> {
     // Register management HTTP routes before setup completes so operators can fix setup problems in the UI.
     this.disposers.push(registerHttp(this.ctx, this.httpHost()))
     if (!await this.setup.run(this.store.settings())) {
@@ -303,6 +344,9 @@ export class Runtime extends Service implements SourceHost {
     this.controls.recover()
     await this.sessions.ensure(this.masterId, this.machine.stateDir, 'dsh-superagent orchestrator', 'orchestrator')
     for (const id of this.settings.syncable()) await this.settings.sync(id).catch(() => { /* sync() records its failure in health. */ })
+    // Recording grants bind the verified bot identity. Do not read them before Setup resolves it.
+    // Revalidate after source synchronization and before any worker or delivery loop resumes.
+    revalidateControls()
     // If stop() was called while awaiting setup, session creation, or policy sync, do not start background loops.
     if (this.closing()) return
     this.executor.resume()

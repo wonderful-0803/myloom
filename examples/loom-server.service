@@ -1,0 +1,35 @@
+[Unit]
+Description=Loom company assistant (DeepSeek Harness)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=loom
+Group=loom
+WorkingDirectory=/var/lib/loom/workspace
+Environment=HOME=/var/lib/loom
+Environment=DSH_HOME=/var/lib/loom/dsh
+Environment=DSH_AGENTS_HOME=/var/lib/loom/agents
+Environment=PATH=/opt/loom/runtime/bin:/opt/loom/current/toolchain/node_modules/.bin:/usr/local/bin:/usr/bin:/bin
+Environment=LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1
+Environment=LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
+ExecStart=/opt/loom/current/toolchain/node_modules/.bin/dsh --profile loom-company --no-open
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=300
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/loom
+RestrictSUIDSGID=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

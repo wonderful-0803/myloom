@@ -76,7 +76,7 @@ export class SourceRegistry implements SourceScope {
     const kind = this.kinds.get(channel.source)
     if (!kind) return false
     const instance = this.resolve(kind, settings.sources[channel.source])
-    return instance.enabled && (kind.channel?.allowed?.(channel.address, instance.config) ?? true)
+    return instance.enabled && (kind.channel?.allowed?.(channel.address, instance.config, settings.policy.sources[channel.source]) ?? true)
   }
   /** Environment variable declarations for every installed kind, whether enabled or disabled. */
   declarations(): { kind: string; variables: readonly VariableSpec[] }[] {
@@ -128,10 +128,11 @@ export class SourceRegistry implements SourceScope {
     if (!kind) return stored ? { listened: false, reason: 'source_not_installed' } : { listened: true, observed: false }
     const instance = this.resolve(kind, stored)
     if (!instance.enabled) return { listened: false, reason: 'source_disabled' }
-    if (input.actor && kind.actorAllowed && !kind.actorAllowed(input.actor, instance.config, settings.policy.sources[input.source]?.allowed ?? [])) {
+    const part = settings.policy.sources[input.source]
+    if (input.actor && kind.actorAllowed && !kind.actorAllowed(input.actor, instance.config, part?.allowed ?? [], part)) {
       return { listened: false, reason: 'sender_not_allowed' }
     }
-    return kind.scope ? kind.scope({ meta: input.meta }, instance.config) : { listened: true, observed: false }
+    return kind.scope ? kind.scope(input, instance.config, part) : { listened: true, observed: false }
   }
   /** Falls back to schema defaults and disables the instance when stored configuration fails validation. */
   private resolve(kind: SourceKind, stored: { enabled: boolean; config: Record<string, unknown> } | undefined): SourceInstance {

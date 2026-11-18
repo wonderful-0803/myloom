@@ -1,8 +1,16 @@
 # 计算、状态与执行环境分离：开发交接
 
-更新：2026-11-09。本文与三个工作包基于当前工作区代码，不代表已经部署到公司服务器。总设计见 [服务端架构实施方案](../SERVER_ARCHITECTURE_IMPLEMENTATION.md)。
+更新：2026-11-11。本文与三个工作包基于当前工作区代码，不代表已经部署到公司服务器。总设计见 [服务端架构实施方案](../SERVER_ARCHITECTURE_IMPLEMENTATION.md)。
+
+部署目标仍是用户此前提供的 **AI 盒子／公司一体机**，不是另购云服务器。计算服务、PostgreSQL 和独立持久文件目录可以先同机、不同进程部署；接口与生命周期分离后再按需要迁移。盒子既有 ARM64 试点配置见 [部署记录](../SERVER_DEPLOYMENT.md)。本轮开发不自动升级盒子、导入历史或切换监听。
+
+本轮改为由同一开发者按 **A → B → 复核已完成的执行接口 → C** 顺序推进。A 已补齐公司群入口、异步状态与不可变产物、来源／原生适配器和迁移回滚代码，实际切换仍待验收，见 [分批实现](STATE_STORAGE.md) 与 [操作方案](COMPANY_PRODUCT.md)；尚不能据此把三个工作包标为完成。[Router 实验记录](../ROUTER_EXPERIMENTS.md) 保留此前结论，实验不再和本轮功能改造混合比较。
+
+2026-11-11 开始 B：原生 provider 与进程故障契约见 [B1](DSH_STATE_B1.md)，公司统一 owner/epoch、守卫与真实 drain 见 [B3](DSH_STATE_B3.md)。2026-11-12 [B4 首批](DSH_STATE_B4.md) 增加 SQL KV/workspace、环境契约及文本历史离线迁移，并实际运行 rc.3 JSONL/JSON→SQL→新 WorkspaceRegistry 进程；无停止证据的崩溃恢复、附件及完整模型任务接续仍待后续。2026-11-12 [B5 首批](DSH_STATE_B5.md) 连接真实 AgentLoop 的有序停机/同 Session 接续、人工控制与版本、独立模型选择恢复、完成后不重复交付，验证方式与剩余范围见该记录。现行实例未切换，不将受限场景验收等同于整体计算无状态。
 
 提交范围：执行接口和本目录文档独立提交。工作包提到的群模式、录音、Word 与公司试点背景来自现有工作区；它们的其他未提交实现不包含在本次执行接口提交中，须随各自功能另行合入。接手时先核对目标分支的实际模块与依赖，再落实涉及这些功能的改造点。
+
+2026-11-12 B6 补齐限定故障恢复、原生附件与完整备份、公司 profile/启动入口，并在既有 ARM AI 盒子完成真实历史的隔离分区迁移和空库恢复。代码与隔离证据见 [B6](DSH_STATE_B6.md)；正式来源/provider 尚未切换，真实企业入口上线验收仍保留，不能把 B 记为已上线。
 
 ## 本轮已完成：执行接口抽象
 
@@ -40,6 +48,12 @@
 
 提交前另将本包从其他未提交功能中拆出，在独立源码副本执行相同的 TypeScript、Vitest 与 tsdown 检查：85 个测试文件通过、1387 项通过、4 项跳过，类型检查及构建通过。本次远端提交以该独立版本为准；上段 1421 项是包含其余本地功能的工作区验证记录。
 
+2026-11-12 C1 已开始：严格只读协议、显式路由、无本机回退和内存模拟器已验证，见 [C1](GATEWAY_RUNNER_C1.md)。真实 Linux Runner/设备网关/两机验收仍待继续。
+
+2026-11-12 C2 已补本机 Linux 只读 Runner、显式目录授权、Ed25519 请求核验、SQLite 去重与进程锁/崩溃恢复，见 [C2](GATEWAY_RUNNER_C2.md)。只用虚构临时目录；真实网关/在线配对/DSH 代理与两机仍待 C3/C4，当前盒子未启用设备执行。
+
+2026-11-17 C3 继续：`src/execution/gateway.ts` 已实现受信网关核心，包括一次性配对、设备公钥绑定、签名连接挑战、心跳、撤销、连接过期、按设备转发和网关侧请求账本；请求账本可通过 `StateGatewayLedgerBackend` 写入 `execution` family，设备目录可通过 `StateGatewayDirectory` 写入 `gateway-pairing:*`／`gateway-device:*` KV。`src/execution/tls.ts` 增加 TLS 1.3 出站 Runner、JSONL RPC、心跳确认和指数退避重连；`CompanyServer` 已接入可选 TLS Gateway 监听和管理员配对/注册/列表/撤销 API。`tests/gateway.spec.ts`、`tests/tls-gateway.spec.ts`、`tests/gateway-http.spec.ts` 与 `tests/gateway-config.spec.ts` 用内存 Runner、SQLite 状态、临时证书和虚构数据验证设备边界、配对跨实例读回、撤销持久化、保护边界、RPC、重连和证书文件约束。AI 盒子证书部署、A/B 控制事务绑定和两机真实验收仍待部署阶段与 [C4](GATEWAY_RUNNER_C4_ACCEPTANCE.md)。
+
 ## 三个后续工作包
 
 | 工作包 | 交付目标 | 可先独立开展的内容 |
@@ -48,9 +62,9 @@
 | [B：DSH 状态外置](DSH_STATE.md) | 外部 SessionPersistence、DSH 元数据、单写者租约与恢复 | 固定 DSH 版本、存储服务插件、句柄与事件持久化测试 |
 | [C：网关与 Runner](GATEWAY_RUNNER.md) | 环境注册、授权路由、Linux Runner、执行回执与离线恢复 | 协议与模拟器、能力分类、本机资源授权、Runner 账本 |
 
-建议顺序：A、B 可分别开发存储适配器；C 同时做协议及 Linux 隔离测试。A 先交付控制版本／持久执行账本和短事务，B 再接统一 Session 租约，C 才能开放真实远程任务。最终串联验收通过之前，生产仍使用现有本机端口。
+实施顺序按用户最新安排串行推进。A 先交付控制版本／持久执行账本和短事务，B 再接统一 Session 租约，复核现有执行接口后，C 才能开放真实远程任务。最终串联验收通过之前，生产仍使用现有本机端口。
 
-共同主键先冻结为 `tenantId / spaceId / userId / ticketId / assignmentId / sessionId / environmentId / requestId`。这是目标协议；本轮代码仍使用现有 ActorRef、可选 loomSpace，尚无企业身份映射，不能把缺失 tenantId 解释成通配权限。首轮先一个企业实例、既有指定群与明确主人，不默认扩展跨群、私人资源共享或 A2A。
+共同主键先冻结为 `tenantId / spaceId / userId / ticketId / assignmentId / sessionId / environmentId / requestId`。正式 Runtime 仍使用现有 ActorRef、可选 loomSpace；新增异步状态端口强制显式 tenantId／spaceId，但真实企业身份映射仍需接入，不能把缺失 tenantId 解释成通配权限。首轮先一个企业实例、既有指定群与明确主人，不默认扩展跨群、私人资源共享或 A2A。
 
 租约表与租约服务由 A 提供基础设施，B 定义 Session 单写者和 epoch 语义，C 在请求接受与执行前核验同一 epoch。三方不能分别维护互不关联的租约。外部发送仍由现有交付服务处理，不经 Runner 重复发送。
 

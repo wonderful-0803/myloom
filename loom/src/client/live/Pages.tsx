@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { LoomSnapshot, LoomTask } from '../../../../src/app/loom-types';
 import { api, decisionName, draftName, enc, modeName, needsYou, taskState, when } from './api';
 import { useWorkspace, type LibraryView, type TaskView } from './context';
 import { Delivery } from './Delivery';
 import { Empty, Facts, Panel, Pill } from './ui';
+import { WorkspaceMode } from './WorkspaceMode';
+import { WorkbenchSetup, type WorkbenchStatus } from './WorkbenchSetup';
 
 type Event = LoomSnapshot['events'][number];
 
@@ -18,20 +20,23 @@ function TaskRow({ task }: { task: LoomTask }) {
 }
 
 function eventLabel(event: Event, linked: boolean) {
+  if (event.contextOnly) return '群讨论 · 仅作上下文';
   if (event.system) return '委托回执';
   if (event.action) return `助手指令 · ${event.action}`;
-  if (event.observed) return '仅观察 · 未执行';
   if (linked) return '已关联任务';
   if (event.processing === 'evaluating') return '正在评估';
   if (event.processing === 'queued') return '等待评估';
+  if (event.observed) return '仅观察 · 未执行';
   return event.decision ? decisionName[event.decision] ?? event.decision : '已接收';
 }
 
 function EventRow({ event }: { event: Event }) {
   const { data, openTask } = useWorkspace();
   const linked = (event.taskIds ?? []).flatMap(id => data.tasks.find(task => task.id === id) ?? []);
+  const typeLabel = event.inputKind === 'attachment' ? '包含附件' : event.inputKind === 'thread-reply' ? '话题回复' : '';
   return <article className="lv-event">
-    <header><strong>{event.direct ? '机器人私聊' : event.chat}</strong><Pill tone={linked.length ? 'run' : event.decision === 'accept' ? 'run' : 'off'}>{eventLabel(event, linked.length > 0)}</Pill><time>{when(event.at)}</time></header>
+    <header><strong>{event.direct ? '机器人私聊' : event.chat}{event.actor ? ` · ${event.actor}` : ''}</strong><Pill tone={linked.length || event.decision === 'accept' ? 'run' : event.processing ? 'wait' : 'off'}>{eventLabel(event, linked.length > 0)}</Pill>
+      {typeLabel && <Pill tone="off">{typeLabel}</Pill>}{event.batched && <Pill tone="off">同话题合并评估</Pill>}<time>{when(event.at)}</time></header>
     <p>{event.text}</p>
     {linked.map(task => <button type="button" key={task.id} className="lv-chip-link" onClick={() => openTask(task.id)}>
       {task.title} · {taskState(task, data.paused).label}<span aria-hidden="true">→</span>
@@ -71,7 +76,7 @@ export function Overview() {
         <Panel title="自主处理" aside={<button type="button" className="lv-link" onClick={() => go('delegations')}>调整</button>}>
           <div className="lv-mode"><Pill tone={data.mode === 'auto' ? 'run' : 'off'}>{modeName[data.mode]}</Pill>
             <span>{data.rules.filter(r => r.enabled).length} 条规则启用 · {data.delegations.filter(d => d.enabled).length} 条委托生效</span></div>
-          <p className="lv-fine">{data.connection.chats.length ? `监听 ${data.connection.chats.map(c => c.name).join('、')}，` : '只处理私聊，'}只有你本人能触发任务</p>
+          <p className="lv-fine">{data.connection.chats.length ? `监听 ${data.connection.chats.map(c => c.name).join('、')}，` : '只处理私聊，'}{data.workspace?.mode === 'group' ? `由 ${data.workspace.group?.masters.length ?? 0} 位主人发起和控制任务` : '只有你本人能触发任务'}</p>
         </Panel>
         <Panel title="最近消息" aside={<button type="button" className="lv-link" onClick={() => go('inbox')}>全部消息</button>}>
           {data.events.length ? <div className="lv-events">{data.events.slice(0, 5).map(event => <EventRow key={event.id} event={event} />)}</div>
@@ -148,13 +153,16 @@ export function Inbox() {
 export function Settings() {
   const { data, locked, run, refresh } = useWorkspace();
   const [mailbox, setMailbox] = useState('');
+  const [workbench, setWorkbench] = useState<WorkbenchStatus | null>(null);
+  useEffect(() => { void api<WorkbenchStatus>('/workbench/status').then(setWorkbench, () => setWorkbench(null)); }, []);
   const c = data.connection;
   return <div className="lv-split">
     <div className="lv-stack">
+      <WorkspaceMode key={data.workspace?.mode ?? 'personal'} />
       <Panel title="产物交付" note="任务完成后，已保存的报告定稿按这里的方式交付">
-        <Delivery setting={data.delivery} disabled={locked} save={async (mode, revision, mailboxKey) => {
+        {data.workspace?.mode === 'group' ? <p>报告定稿发回原群消息线程，保留版本和投递记录。个人邮箱不用于共享任务。</p> : <Delivery setting={data.delivery} disabled={locked} save={async (mode, revision, mailboxKey) => {
           await api('/delivery', 'PUT', { mode, revision, ...(mailboxKey ? { mailboxKey } : {}) }); await refresh();
-        }} />
+        }} />}
       </Panel>
       <Panel title="最近飞书回执">
         {data.deliveries.length ? <ul className="lv-receipts">{data.deliveries.slice(0, 10).map(d =>
@@ -163,16 +171,17 @@ export function Settings() {
     </div>
     <div className="lv-stack">
       <Panel title="连接" note="复用本机的飞书机器人、模型和邮箱配置，不在这里填写密钥">
-        <Facts items={[['飞书机器人', c.name], ['App ID', <code key="id">{c.appId}</code>], ['执行模型', data.model], ['邮件服务', c.mailProvider === '163' ? '163 邮箱' : '飞书企业邮箱'],
-          ['受控起草', c.draftsEnabled ? '已启用' : '未启用'], ['卡片按钮', c.cardsEnabled ? '已启用' : '未启用，文字入口可用']]} />
-        <div className="lv-actions">
+        <Facts items={[[data.identity ? '当前飞书 UID' : '当前主人', data.identity ? <code key="uid">{data.identity.uid}</code> : data.workspace?.operator ?? ''], ['飞书机器人', c.name], ['App ID', <code key="id">{c.appId}</code>], ['执行模型', data.model], ['邮件服务', data.workspace?.mode === 'group' ? '共享模式不启用' : c.mailProvider === '163' ? '163 邮箱' : '飞书企业邮箱'],
+          ['受控起草', data.workspace?.mode === 'group' ? '使用共享任务与报告' : c.draftsEnabled ? '已启用' : '未启用'], ['卡片按钮', c.cardsEnabled ? '已启用' : '未启用，文字入口可用']]} />
+        {data.workspace?.mode !== 'group' && <div className="lv-actions">
           <button type="button" className="lv-btn" disabled={locked} onClick={() => void run(async () => { setMailbox((await api<{ message: string }>('/mail/connection', 'POST', {})).message); })}>验证邮箱连接</button>
           {mailbox && <span className="lv-fine">{mailbox}</span>}
-        </div>
+        </div>}
       </Panel>
+      {workbench && <WorkbenchSetup initial={workbench} />}
       <Panel title="监听范围与服务">
         <ul className="lv-receipts">
-          <li><strong>机器人私聊</strong><span>本人消息</span></li>
+          <li><strong>机器人私聊</strong><span>{data.workspace?.mode === 'group' ? '共享模式不接入私人会话' : '本人消息'}</span></li>
           {c.chats.map(chat => <li key={chat.chatId}><strong>{chat.name}</strong><span>{chat.listen === 'all' ? '接收全部消息' : '仅处理 @ 机器人'}</span></li>)}
         </ul>
         <div className="lv-health">{c.health.map(h => <Pill key={h.id} tone={h.state === 'ready' ? 'done' : h.state === 'error' ? 'attn' : 'off'}>{h.id} · {h.state}</Pill>)}</div>

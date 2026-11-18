@@ -9,6 +9,8 @@ import { Delegations } from './live/Delegations';
 import { DocSheet, MailSheet, TaskSheet, type MailResult } from './live/Details';
 import { Inbox, Library, Overview, Settings, Tasks } from './live/Pages';
 import { Alert } from './live/ui';
+import { GroupSpaces } from './live/GroupSpaces';
+import { WorkbenchSetup, type WorkbenchStatus } from './live/WorkbenchSetup';
 import './live/live.css';
 
 const pages: { id: Page; label: string; title: string; note: string }[] = [
@@ -34,7 +36,8 @@ function readTheme(): Theme { try { const v = localStorage.getItem('loom-live-th
 
 export function LiveApp() {
   const [page, setPage] = useState<Page>(pageFromHash);
-  const [data, setData] = useState<LoomSnapshot | null>(null), [online, setOnline] = useState(false);
+  const [data, setData] = useState<LoomSnapshot | null>(null), [online, setOnline] = useState(false), [loadError, setLoadError] = useState('');
+  const [onboarding, setOnboarding] = useState<WorkbenchStatus | null>(null);
   const [busy, setBusy] = useState(false), [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const [delegation, setDelegation] = useState<string | null>(null);
   // `nav` changes on every navigation so the target page remounts with the requested tab or filter.
@@ -44,10 +47,12 @@ export function LiveApp() {
   const sync = useRef<ReturnType<typeof startLiveSync<LoomSnapshot>> | null>(null), toastTimer = useRef<number>();
 
   useEffect(() => {
+    void api<WorkbenchStatus>('/workbench/status').then(value => { if (!value.authorized) setOnboarding(value); }, () => undefined);
     const live = startLiveSync({
       load: signal => api<LoomSnapshot>('', 'GET', undefined, signal),
-      value: value => { setData(value); setOnline(true); },
-      error: () => setOnline(false),
+      value: value => { setData(value); setOnline(true); setLoadError(''); },
+      // Only server-authored (Chinese) refusals replace the generic connecting text; transport errors stay generic.
+      error: value => { setOnline(false); const text = message(value); setLoadError(/[一-鿿]/.test(text) ? text : ''); },
     });
     sync.current = live;
     return () => { sync.current = null; live.stop(); };
@@ -106,7 +111,7 @@ export function LiveApp() {
     <header className="lv-top">
       <div className="lv-top-in">
         <button type="button" className="lv-brand" onClick={() => navigate('overview')}>Loom<i>.</i></button>
-        <nav className="lv-nav" aria-label="主导航">{pages.map(p =>
+        <nav className="lv-nav" aria-label="主导航">{pages.filter(p => data?.workspace?.mode !== 'group' || !['codex', 'sync'].includes(p.id)).map(p =>
           <button type="button" key={p.id} aria-current={page === p.id ? 'page' : undefined} onClick={() => navigate(p.id)}>
             {p.label}{p.id === 'overview' && attention > 0 && <b>{attention}</b>}
           </button>)}</nav>
@@ -119,21 +124,23 @@ export function LiveApp() {
       </div>
     </header>
     <main className="lv-main" id="main">
+      <GroupSpaces />
       <div className="lv-head">
         <div><h1>{heading.title}</h1><p>{heading.note}</p></div>
         <button type="button" className="lv-btn" onClick={() => void refresh()}>刷新</button>
       </div>
       {!online && data && <Alert tone="error">{staleNotice}</Alert>}
-      {data?.paused && <Alert>后台执行已全局暂停，查看结果不会启动任务</Alert>}
-      {!workspace ? <div className="lv-loading">{online ? '正在读取工作空间…' : '正在连接本机助手…'}</div>
+      {data?.paused && <Alert>当前工作空间的后台执行已暂停，查看结果不会启动任务</Alert>}
+      {!workspace ? onboarding ? <WorkbenchSetup initial={onboarding} full onReady={() => { void api<WorkbenchStatus>('/workbench/status').then(value => setOnboarding(value.authorized ? null : value), () => undefined); }} />
+        : <div className="lv-loading">{online ? '正在读取工作空间…' : loadError || '正在连接本机助手…'}</div>
         : <WorkspaceContext.Provider value={workspace}>
           {page === 'overview' && <Overview />}
           {page === 'tasks' && <Tasks key={nav.key} view={nav.view as TaskView | undefined} delegation={delegation} clearDelegation={() => setDelegation(null)} />}
           {page === 'library' && <Library key={nav.key} view={nav.view as LibraryView | undefined} delegation={delegation} clearDelegation={() => setDelegation(null)} />}
           {page === 'inbox' && <Inbox />}
           {page === 'delegations' && <Delegations />}
-          {page === 'codex' && <Codex />}
-          {page === 'sync' && <DeviceSync />}
+          {page === 'codex' && (data?.workspace?.mode === 'group' ? <Alert>私人记录仅在个人模式中提供</Alert> : <Codex />)}
+          {page === 'sync' && (data?.workspace?.mode === 'group' ? <Alert>私人设备同步仅在个人模式中提供</Alert> : <DeviceSync />)}
           {page === 'settings' && <Settings />}
           {task && (() => { const value = workspace.data.tasks.find(t => t.id === task); return value ? <TaskSheet task={value} onClose={() => setTask(null)} /> : null; })()}
           {doc && <DocSheet subject={doc.subject} version={doc.version} onClose={() => setDoc(null)} onMail={result => { setDoc(null); setMail(result); }} />}

@@ -290,6 +290,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 
 | Path | Responsibility |
 | --- | --- |
+| `scripts/company-lan-gateway.mjs`, `loom/src/client/live/request-id.ts` | Explicit private-LAN product gateway; secure request IDs on HTTP LAN origins |
 | `src/sync/model.ts` | Bounded conversation/plan schemas, opaque device credentials, safe errors and HTTPS endpoint validation |
 | `src/sync/database.ts` | Separate private SQLite persistence for sync data with durable transactions; no second task runtime |
 | `src/sync/hub.ts` | Device-authenticated spaces, scoped one-time invitations, recovery, revocation, project deletion, immutable conversation batches and plan branches |
@@ -309,6 +310,14 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment` and `resolveFeishuBot` read the repository and the accounts from the Source settings, each CLI run as Executor shells run it; `SETUP_FIELDS` lists the Source fields setup reads. The code names no person, account or organization |
 | `src/setup.ts` | Setup problems: `SetupError`, with a code, the place that fixes it and the English text the log, the main Session and the panel share |
 | `src/personal-setup.ts` | Initializes versioned personal office settings in an explicitly owned desktop instance without importing or replacing existing credentials, history or state |
+| `src/group-mode.ts` | Optional shared-group mode schema, explicit masters and activation epochs, reused by the same Runtime, source gates and artifact boundaries |
+| `src/meeting-delegation.ts` | Browser-safe policy schema for recording-specific, confirm-first standing delegations |
+| `src/audio.ts` | Fixed local ASR subprocess, bounded structured output and process-group cancellation; no model-controlled paths or commands |
+| `src/document-format.ts` | Browser-safe Word output schema and immutable file metadata |
+| `src/documents.ts` | Time/memory-bounded fixed renderer worker and binary integrity metadata |
+| `src/document-render.ts` | Pure Markdown to OOXML headings, lists and tables without external resource loading |
+| `src/document-worker.ts` | Fixed worker entry for document rendering with bundled dependencies |
+| `src/asr-bailian.ts` | Private DashScope Filetrans upload, credential-isolated OSS requests, durable cloud task checkpoints and bounded timestamped result parsing |
 | `src/policy.ts` | The Policy: the settings schemas by block, the Policy version, the gate and Mandate revalidation |
 | `src/admission.ts` | The admission table's values, each cell's options and defaults, shared with the panel |
 | `src/limits.ts` | The limits of the values a person sets, which the settings schemas check and the panel's fields offer |
@@ -329,6 +338,19 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/core/ids.ts` | `key`: ids derived from their inputs, equal for equal inputs |
 | `src/core/memory.ts` | `MemoryRepositories`: the Store's repositories in memory, in the Store's order and with its nested rollback, for domain tests |
 | `src/core/index.ts` | The core's exports |
+| `src/state/index.ts` | Opt-in asynchronous external-state exports; the existing Runtime is not switched automatically |
+| `src/state/ports.ts` | Scoped async repositories, CAS records, bounded queries, durable jobs, writer leases and transaction lifetime errors |
+| `src/state/sql.ts` | Shared SQLite/PostgreSQL repository semantics, versioned schema, tombstones, job tokens and database-time lease epochs |
+| `src/state/sqlite.ts` | Awaited SQLite transactions, same-file serialization, rollback and legacy-database refusal |
+| `src/state/postgres.ts` | Connection pool, initialization lock, short per-space transactions and failure-closed connection handling |
+| `src/state/domain-unit.ts` | Bounded transaction-local aggregate loading and flushing for the existing pure Engine rules |
+| `src/state/application.ts` | Async admission, decision, worker report, control and reply commands with current authorization, command receipts and durable effect intents |
+| `src/state/controls.ts` | Persistent control revision CAS, execution/grant/lease fences, unknown outcomes and verified handover |
+| `src/state/outbox.ts` | Text delivery intents, committed sending attempts, provider receipts and explicit unknown-outcome reconciliation |
+| `src/state/consumer.ts` | Durable bounded background consumers, cross-process pool claims, heartbeats, typed orderly-stop reasons, cancellation draining and explicit failure holds |
+| `src/state/runtime.ts` | Opt-in async task kernel using the existing Passes and Engine, fresh authorization and injected assessment/worker/delivery ports |
+| `src/state/hash.ts` | Canonical JSON parameter hashes for durable request identity |
+| `src/state/kv.ts` | Explicit existing KV family ownership whitelist for the new state boundary and inventory |
 | `src/app/runtime.ts` | The Runtime, the composition root, with its start and stop |
 | `src/app/setup.ts` | Setup, and `setupChanged`, whether a save changes a field setup reads |
 | `src/app/passes.ts` | Passes, the pass scheduler |
@@ -339,6 +361,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/artifacts.ts` | Immutable report revisions, provenance hashes, current source authorization, human edit conflicts and task requirement fingerprints |
 | `src/app/feishu-cards.ts` | Card 2.0 state/list/edit rendering, escaped content and native callback schema; actual authority lives in server-side grants |
 | `src/app/quiet-drafts.ts` | Optional observe-summary drafts and explicit private draft requests, tool-free bounded model calls, durable budgets and no automatic delivery |
+| `src/app/meetings.ts` | Durable recording offers, exact-thread master consent, bot source verification, bounded local transcription and ordinary task/report integration |
 | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
 | `src/app/store.ts` | The Store, and `Receipt`, a message of the outbox |
 | `src/app/store-read.ts` | `storeReads`: the Store's read queries for the views, the tools and the Sources' polls, which never write |
@@ -375,6 +398,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/codex-daily.ts` | Owner-authorized daily schedule and manual intake, durable deduplication, scoped source snapshots and ordinary Harness task creation |
 | `loom/src/client/LiveApp.tsx`, `loom/src/client/live/live.css` | The live Loom workspace at `/orchestrator/loom/`: top navigation, snapshot polling, theme and the drawers; demo code stays separate and loads as its own chunk |
 | `loom/src/client/live/api.ts`, `loom/src/client/live/context.ts` | Workspace API client, shared labels and task state, and the context every page uses for writes and navigation |
+| `loom/src/client/live/GroupSpaces.tsx` | Authenticated company group selection, explicit registration/member verification and per-group source controls |
 | `loom/src/client/live/Pages.tsx` | Overview, tasks, deliverables and drafts, message inbox and connection settings |
 | `loom/src/client/live/Details.tsx` | Task drawer (controls, progress, delivery), document drawer (versions, edit, export, draft decisions, report file) and mail confirmation |
 | `loom/src/client/live/Delegations.tsx` | Standing delegations, Codex report scope and consent, base-rule mode and switches with independent revisions |
@@ -390,7 +414,13 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/views/overview.ts` | The overview: Tickets that need a person, problems, the last day's flow and the Executor's load |
 | `src/executor/dsh.ts` | The DshExecutor, `WorkerSlots`, `ticketExecution`, `inputMessage` and `mandateInstructions` |
 | `src/executor/background.ts` | A worker's background work in DeepSeek Harness, the shell jobs its Session owns (`ctx.jobs`) and its subagents (`ctx.subagents`): `runningJobs`, `untilQuiet`, `killJobs`, `collectJobs`, `stopSubagents`, `stopBackground`, `until`, and `cancelled`, the workers whose turn a stop of their subagents cancelled |
+| `src/execution/protocol.ts`, `router.ts`, `simulator.ts`, `index.ts` | C1 strict read-only wire schemas, explicit no-fallback routing and in-memory transport simulator; not enabled in the Runtime |
+| `src/execution/runner/config.ts`, `files.ts`, `ledger.ts`, `runner.ts`, `index.ts` | C2 local Linux identity/bootstrap, explicit grants, descriptor-based bounded text tools, durable SQLite receipts and actual process ownership; no network transport |
 | `src/execution/port.ts` | Typed execution intents and trusted task/session/environment bindings; a shared local port for preparation, native tools, background jobs and stop confirmation; refuses Runner targets and local fallback |
+| `src/execution/company.ts` | Company-scope remote execution authority: owner-bound Runner selection, ticket permits, resource grants and explicit remote profile admission |
+| `src/execution/gateway-config.ts` | Private Gateway Ed25519 identity and TLS material loading/creation with ownership and permission checks |
+| `src/execution/gateway.ts` | Pairing/device directory, scoped multi-group Gateway request ledger, signed permits and authenticated device transport |
+| `src/execution/tls.ts` | TLS 1.3 Runner handshake, framed RPC transport, heartbeat, timeout and disconnect handling |
 | `src/infra/commands.ts` | `Commands`, the CLI transport: `run`; `api` and `pages`, limited to the configured repository and validated; `lark` as the bot; `git`. `CliError` carries the code a command's output reports, such as a GitHub HTTP status, and a command that prints nothing fails with how it ended, never with its arguments; `validItems` skips and counts the malformed items of a list |
 | `src/infra/environment.ts` | The agent's process environment: command shims, the git configuration and credential helper, `runAsWorker`, and the checks of the environment and of a Ticket's directory |
 | `src/infra/process.ts` | Native Node CLI argument arrays and platform-specific workspace preparation shells |
@@ -439,10 +469,75 @@ Some generic modules still refer directly to GitHub or Feishu:
 
 `src/sources/github.ts` and `src/sources/feishu.ts` are also the entries of the two Source plugins, built by `tsdown.config.ts` and exported in `package.json` as `./github-watch` and `./feishu-watch`. The bundle's `cordis.patch.yml` inserts the three plugins, with Feishu disabled.
 
+| `src/company.ts` | Explicit opt-in AI-box company entry; private configuration and separate authenticated product HTTP service |
+| `src/state/blobs.ts` | Scoped immutable persistent-volume blob storage with symlink, digest and atomic publication checks |
+| `src/state/docx.ts` | Bounded ZIP/OOXML integrity checks on actual Word bytes |
+| `src/state/artifacts.ts` | Immutable body/binary manifests, human CAS edits, reference catalog and delayed GC |
+| `src/state/access.ts` | Installation and current user/source/task/artifact authority on external transactions |
+| `src/state/auth.ts` | Browser-bound one-use Feishu login and revocable external server sessions |
+| `src/state/workbench.ts` | Feishu Workbench UID onboarding, bot credential probe, default permission manifest and private secret reference registration |
+| `src/state/operator-login.ts` | Explicit SSH-only loopback pilot login with expiring one-use operator codes and current installation authorization |
+| `src/state/http.ts` | Authenticated company product routes, CSRF, safe assets and authorized downloads |
+| `src/state/product.ts` | Async Loom read models, actual progress, controls, versioned settings and group membership |
+| `src/state/feishu.ts` | Installation lease, finite event stream, authorized context and durable recovery cursors |
+| `src/state/feishu-cli.ts` | Strict bot identity, ready-marker/backpressure protocol, files and receipt transport |
+| `src/state/native.ts` | Real native DSH Session adapter with awaited input facts, tool guards, log-based model restoration, terminal pre-step drain and proved orderly-stop retry |
+| `src/state/results.ts` | Fixed-version original-thread attachments, ordered receipts and unknown-outcome protection |
+| `src/state/assistant.ts` | Durable explicit Feishu query/control/export commands and response attempts |
+| `src/state/server.ts` | Company runtime composition: same external state authority for source, product, native worker and deliveries |
+| `src/state/migrate.ts` | Read-only legacy dry-run, scoped staged import, digest verification and explicit activation |
+| `src/state/company-groups.ts`, `group-broker.ts`, `company-capacity.ts` | Explicit durable group directory, single leased Feishu stream, per-group native roots and shared bounded compute; see `docs/MULTI_GROUP.md` |
+| `src/state/backup.ts` | Portable offline state and blob rollback with CAS/tombstone retention and held jobs |
+| `src/state/worker-sandbox.ts`, `src/state/worker-capabilities.ts`, `scripts/company-worker-sandbox.mjs` | Worker capability/resource policy, task environment containment, and reviewed DSH sandbox adapter |
+| `src/state/signals.ts` | Feishu and Runner signal normalization, bounded coalescing keys, immutable audit traces and signal deduplication |
+| `src/state/meetings.ts` | Existing recording consent/ASR workflow on awaited external state and immutable transcript references |
+| `src/state/recovery.ts` | Evidence-based operator reconciliation without automatic resend or resume |
+| `src/dsh-state.ts` | Opt-in PostgreSQL native provider entry; company adoption explicitly selects the same authority |
+| `src/dsh-state/provider.ts` | Native SessionPersistence create/open/stat/list/flush, live routing and handle lifecycle |
+| `src/dsh-state/handle.ts` | Serialized append/drain/close, retained and reconciled batches, scoped writer leases and permanent ownership loss |
+| `src/dsh-state/storage.ts` | Native immutable headers, exact fork cut, contiguous event rows and content hashes |
+| `src/dsh-state/ownership.ts` | Host-only borrowing of the application lease, scoped native handle ownership, renewal, fault cancellation and drain |
+| `src/dsh-metadata.ts` | Explicit SQL metadata backend mount, native authority sharing and preset/model compatibility guard |
+| `src/dsh-state/compute.ts` | Linux host/boot/PID-namespace/start-time evidence; live or stopped processes are never mistaken for exited owners |
+| `src/dsh-state/recovery.ts` | Proved process exit, validated durable prefixes and crash receipts distinct from graceful flush receipts |
+| `src/dsh-state/attachments.ts` | Scoped native attachment references, bounded archive bytes, content hashes and verified import adapters |
+| `src/dsh-state/catalog.ts` | Native import/restore gate and pinned non-secret deployment contract |
+| `src/dsh-state/metadata.ts` | Native KV facet with domain lease fencing, layouts, compatible record versions and exact JSON envelopes |
+| `src/dsh-state/archive.ts` | Scoped offline native archive validation, fixed IDs/fork prefixes, workspace integrity and resumable staged import |
+
+`scripts/smoke-dsh-office.mjs` additionally boots the installed rc.3 Loader and actual AgentLoop/permission/preset/pi-ai modules over the compiled company service and SQL state. Synthetic SSE and opt-in live-model modes keep Feishu transport isolated; separate processes test restart, takeover/edit/return, pending model selection and no resend after completion. The detailed record is `docs/work-packages/DSH_STATE_B5.md`.
+
 ## Tests
 
 | Test | Covers |
 | --- | --- |
+| `tests/state-contract/worker-capabilities.spec.ts` | Native DSH tools, subagent/control surface, task path containment, external connector authorization, and Linux sandbox execution |
+| `tests/state-contract/signals.spec.ts` | Feishu message/attachment/follow-up normalization, bounded coalescing, signal audit deduplication and source-trace persistence |
+| `tests/state-contract/lan-gateway.spec.ts`, `loom/src/client/live/request-id.test.ts` | LAN subnet/Host/Origin/path boundaries, unchanged CSRF and ACL, HTTP request IDs without randomUUID |
+| `tests/dsh-state/provider.spec.ts` | SQLite/PostgreSQL native persistence, live Session events, failure barriers, exact retries, corruption and scoped lease ownership |
+| `tests/dsh-state/company-profile.spec.ts` | Independent private profile placement, pinned nested preset dependencies and refusal of a conflicting graph before service startup |
+| `tests/dsh-state/process.spec.ts` | Real competing processes, SIGKILL recovery in empty compute directories and SIGSTOP/expiry/SIGCONT fencing |
+| `tests/dsh-state/recovery.spec.ts` | Actual SIGSTOP/SIGKILL evidence, intact durable prefixes, missing inputs and replacement epochs |
+| `tests/dsh-state/company.spec.ts` | Company/provider shared epochs, prepublication guards, owned lifecycle drain, takeover, orderly retry versus pause/unknown/claim loss, and fixed-input continuation |
+| `tests/dsh-state/metadata.spec.ts` | SQL domain ownership, stale-cache write refusal, JSON roundtrip, version/layout compatibility and teardown drain |
+| `tests/dsh-state/archive.spec.ts` | Native immutable archive import, forks/workspaces, scope/environment refusal and interrupted migration barriers |
+| `tests/state-contract/groups.spec.ts` | SQLite/PostgreSQL group isolation, membership/SSO, retries, lease/overflow, source enable boundaries and host capacity |
+| `loom/src/client/live/GroupSpaces.test.tsx`, `api.test.ts` | Explicit group registration and in-flight request scope binding |
+| `tests/state-contract/product.spec.ts` | Blob/Word integrity, authorization, human edits, browser login, CSRF and live product HTTP |
+| `tests/state-contract/workbench.spec.ts` | Feishu UID-only onboarding, bot identity probe, private secret storage, permission manifest state and business ACL separation |
+| `tests/state-contract/migration.spec.ts` | Frozen legacy import, retained human/binary versions, unknown sends and interrupted staging recovery |
+| `tests/state-contract/backup.spec.ts` | Portable cross-adapter rollback, revisions, tombstones, blobs, held jobs and stopped-source checks |
+| `tests/state-contract/service.spec.ts` | Source → actual native adapter → artifact → thread delivery, image display/history compatibility and restart without a second submission |
+| `tests/gateway-config.spec.ts`, `tests/gateway-http.spec.ts`, `tests/gateway.spec.ts`, `tests/tls-gateway.spec.ts` | Gateway identities/material, protected HTTP controls, pairing/device/request-ledger isolation and TLS Runner framing |
+| `tests/dsh-state/company-remote.spec.ts`, `tests/state-contract/company-gateway.spec.ts` | Company remote Runner tool admission, local-fallback refusal and optional CompanyServer TLS Gateway startup |
+| `tests/state-contract/recordings.spec.ts` | Explicit group recording confirmation, awaited ASR checkpoints, paginated transcript references and revocation |
+| `tests/state-contract/cli.spec.ts` | Actual CLI subprocess ready marker, split UTF-8, finite stream failure and graceful abort |
+| `tests/state-contract/native-stop.spec.ts` | Cross-compute handover requires the owning epoch’s actual stop/flush receipt; absence and lease expiry never confirm physical stop |
+| `tests/state-contract/store.spec.ts` | Shared async SQLite/PostgreSQL contracts, rollback, scope/CAS/tombstone rules, claims, writer fencing, schema compatibility, connection loss and pool startup during live writes |
+| `tests/state-contract/application.spec.ts` | Real Engine admission on both repositories, command/source deduplication, authorization changes, pause/dispatch races, report fencing and unknown delivery without resend |
+| `tests/state-contract/runtime.spec.ts` | Independent-adapter concurrency, claim supersession, heartbeat/drain behavior, held retries, normalized synthetic Feishu end-to-end pipeline and ordered unknown delivery |
+| `tests/state-contract/crash.spec.ts` | Independent Node processes killed before/after COMMIT, rollback and recovery of the same durable launch job |
+| `tests/state-contract/inventory.spec.ts` | Read-only frozen legacy database inventory, private output and exclusion of values, concrete private keys and credentials |
 | `tests/device-sync.spec.ts` | Real HTTP/persistent two-device round trip with source offline, hub restart, idempotence, project isolation, device revocation, plan branches, AI grants and in-flight withdrawal |
 | `tests/device-sync-api.spec.ts` | Runtime owner routing, disabled defaults, MCP configuration and rejection of unsupported or impersonating requests |
 | `tests/feishu-sync.spec.ts` | Two synthetic Drive connectors with persisted stores, offline source, plan continuity, retry receipts, identity and revocation checks |
@@ -474,6 +569,9 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/personal.spec.ts` | Feishu-only startup without GitHub, office result delivery and continuation, and silent observe/auto rule handling |
 | `tests/personal-setup.spec.ts` | Desktop-owned initial settings, single-owner and source-scope validation, idempotent initialization, and refusal to replace existing or foreign state |
 | `tests/task-control.spec.ts` | Durable personal task holds, native tool leases, in-flight and queued delivery, recovery, and owner-only follow-ups |
+| `tests/execution-protocol.spec.ts` | C1 capability, identity, replay, receipt, cancellation and no-local-fallback contract |
+| `tests/runner.spec.ts` | C2 actual text tools, signed permits, local grants, directory replacement, output budgets, revocation, durable dedupe and cache tombstones |
+| `tests/runner-process.spec.ts` | Real Runner SIGSTOP ownership, SIGKILL recovery to unknown, and no same-ID file replay |
 | `tests/execution-port.spec.ts` | Local workspace and native result preservation, legacy targets, Runner refusal without local side effects, subagent bindings, dispatch revalidation and unknown/stop control semantics |
 | `tests/feishu-assistant.spec.ts` | Real source ingress for owner task queries and controls, private report exports, replay/freshness/revision checks, authorization revocation and uncertain sends |
 | `tests/feishu-mail.spec.ts` | Fixed-recipient Feishu/163 mail previews, confirmation, provider/account binding, SMTP acceptance versus delivery, pause/revocation, unknown outcomes and private ingress |
@@ -483,6 +581,10 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/delegations.spec.ts` | Standing delegation persistence, atomic receipts, owner/scope/freshness filters, per-rule auto acceptance, independent workers, disabling and source revocation holds |
 | `tests/task-progress.spec.ts` | Read-only native activity and timings, reasoning/log suppression, retry blockers, drained handover, return causes and revocation during inspection |
 | `tests/result-delivery.spec.ts` | Real completion-to-file publication, immutable text snapshots, source boundaries, preference revisions, task overrides, unknown results and standing mailbox revocation |
+| `tests/group-mode.spec.ts` | Same-product group mode, verified masters, Engine intake and assessment, context provenance, thread delivery, shared controls, revocation and personal-history separation |
+| `tests/meetings.spec.ts` | Confirm-first recording delegation, source/identity/thread boundaries, ASR and report gating, revocation, cancellation and uncertain-send deduplication |
+| `tests/asr-bailian.spec.ts` | Vendor endpoint and result-URL boundaries, timestamp/speaker preservation, task-ID resume and uncertain-submission refusal |
+| `tests/documents.spec.ts` | Actual OOXML structure, safe filenames, external-resource inertness, size and cancellation bounds |
 | `tests/codex-history.spec.ts` | Day/owner opt-in, archived and older sessions, Shanghai boundaries, context/tool/reasoning suppression, pagination and asynchronous withdrawal |
 | `tests/codex-daily.spec.ts` | Recurring grants, ordinary task/report flow, manual-clock deduplication, schedule semantics, bounded retries, revocation and private delivery |
 | `tests/codex-rpc.spec.ts` | Read-only stdio framing, initialization, denied execution/approval calls, output limits, timeout, cancellation and sanitized diagnostics |
@@ -517,6 +619,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 ## Persistence
 
 One SQLite file, `<stateDir>/orchestrator.sqlite`, which only the Store opens.
+
+The optional `dsh-superagent/state` entry is the first external-state implementation slice. It provides explicit scoped async transactions backed by SQLite or PostgreSQL, bounded transaction-local domain aggregates, durable job/lease/control records and text delivery intents. It does not yet replace Runtime's synchronous Store, all KV consumers, artifact files or DSH persistence. Company deployment still targets the existing AI box; no running instance or data has been migrated by this implementation.
 
 | Table | Holds | Written by |
 | --- | --- | --- |
@@ -684,3 +788,9 @@ The Linux/macOS desktop adapter lives separately in `desktop/`: `main.cjs` owns 
 
 - Trust: which Trigger fields are trusted, such as the Source's actor and Thread membership, and which are not, such as the body and quotes.
 - Deployment isolation: the agent's profile on its own pinned DeepSeek Harness installation, so upgrading DeepSeek Harness elsewhere does not break it.
+
+`scripts/company-groups-server.mjs` composes one authenticated product HTTP and Feishu event broker over separate actual native Harness roots. `src/state/company-groups.ts` owns the durable directory, `group-broker.ts` holds the original bot source lease, and `company-capacity.ts` bounds the total native work. `scripts/smoke-company-groups.mjs` covers actual rc.3 two-root execution and restart with synthetic model/Feishu transports. See `docs/MULTI_GROUP.md` for upgrade and multi-scope backup requirements.
+
+The explicitly configured `local-operator` company console derives its actor from the current installation rather than browser login. It requires an exact IPv4 loopback origin/Host and local peer, rechecks group/resource permissions, and uses automatically obtained, persisted CSRF without authentication cookies. Enterprise and SSH-code modes remain separate. `tests/state-contract/product.spec.ts` covers no-cookie access, disabled former login routes, owner revocation, forged Host/cross-site/CSRF denial, downloads and restart-stable CSRF. `scripts/smoke-company-groups.mjs --local-console` exercises actual rc.3 two-group execution and restart with no login.
+
+The explicitly authorized personal LAN gateway (`scripts/company-lan-gateway.mjs`) binds only a configured private IPv4 address and checks subnet, exact public Host/Origin and product-only paths before forwarding to the loopback console. It preserves CSRF/idempotency/workspace headers and backend ACL checks; it does not expose native Harness ports or create employee identities. The CLI resolves release symlinks before main-entry detection. The frontend request-ID helper supports HTTP LAN origins without randomUUID. LAN deployment and actual browser evidence are recorded in `docs/SERVER_DEPLOYMENT.md`.

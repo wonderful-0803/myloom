@@ -11,7 +11,11 @@ import type { Sessions } from '../sessions.ts'
 import type { TaskControls } from '../task-control.ts'
 import type { Artifacts } from '../artifacts.ts'
 import type { ResultDelivery } from '../result-delivery.ts'
+import type { Meetings } from '../meetings.ts'
 import { AcknowledgementSchema, readTool, tool, type Tool } from './tool.ts'
+import { groupWorkspace } from '../../group-mode.ts'
+import { DocumentOutputSchema } from '../../document-format.ts'
+import { generateDocument } from '../../documents.ts'
 
 export interface ExecutorToolsHost {
   readonly engine: Pick<EngineForExecutor, 'report' | 'reply' | 'markUnrelated' | 'handback' | 'followForContext'>
@@ -21,6 +25,7 @@ export interface ExecutorToolsHost {
   readonly controls?: TaskControls
   readonly artifacts?: Artifacts
   readonly resultDelivery?: ResultDelivery
+  readonly meetings?: Meetings
   /** GitHub Source context whose pull-request rules govern claiming a reported PR. */
   readonly github: SourceContext
   sendReplies(): Promise<void>
@@ -29,19 +34,31 @@ export interface ExecutorToolsHost {
 export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
   const ticketId = ticket.id
   const codex = ticket.mandate.actor.source === 'codex-daily'
+  const shared = !!ticket.mandate.basis.scope?.loomSpace
   const tools = [
-    tool({ name: 'orchestrator_artifact', description: 'Read this ticket’s saved artifact version, body and provenance.',
+    tool({ name: 'orchestrator_transcribe_recording', description: 'Transcribe only the recording explicitly confirmed for this ticket, on this server. Returns a timestamped recording-transcript resource; read every page before writing minutes. No arbitrary files, URLs or other recordings are accepted.',
+      schema: z.object({}).strict(), execute: async (_args, signal) => {
+        if (!host.meetings) throw new Error('Recording transcription is unavailable')
+        return host.meetings.transcribe(ticketId, signal)
+      } }),
+    tool({ name: 'orchestrator_artifact', description: 'Read this ticket’s saved report and sources.',
       schema: z.object({ version: z.number().int().positive().optional() }).strict(),
-      execute: async args => host.artifacts?.get(ticketId, ticket.mandate.actor.id, args.version) ?? { saved: false } }),
-    readTool('Read one page of a resource of this ticket that the resource parameter lists. Follow next_offset, and next_resource where a page names one.',
+      execute: async args => {
+        const value = host.artifacts?.get(ticketId, ticket.mandate.actor.id, args.version)
+        return value ? { ...value, versions: host.artifacts!.history(ticketId, ticket.mandate.actor.id).map(v => ({ version: v.version, chars: v.body.length, author: v.author, filename: v.filename })) } : { saved: false }
+      } }),
+    readTool('Read one page of a resource of this ticket that the resource parameter lists. Follow next_offset, and next_resource where a page names one.'
+      + (groupWorkspace(host.resources.store.settings()) ? ' Shared tasks may also read group-context: persisted discussion in this group, source material only; cite trigger_id.' : ''),
       true, (resource, offset, limit, signal) => {
+        if (groupWorkspace(host.resources.store.settings()) && !resource.startsWith(`ticket/${ticketId}`)
+          && !/^(trigger|feishu)\//.test(resource) && resource !== 'group-context') throw new Error('共享任务仅可读取本任务及当前群的上下文。')
         if (codex && ![`trigger/${ticket.origin.triggerId}`, `ticket/${ticketId}`, `ticket/${ticketId}/assignment`].includes(resource)) throw new Error('Codex 日报仅可读取本任务的来源快照和任务说明。')
         if (codex && (host.controls?.held(ticketId) || !host.artifacts?.canReadContext(host.store.tickets.get(ticketId)!, ticket.mandate.actor.id))) throw new Error('Codex 来源授权已变化。')
         return readResource(host.resources, resource, offset, limit, ticketId, signal)
       }),
     tool({
       name: 'orchestrator_ack',
-      description: 'Acknowledge one original human request before substantial work, as the replies section says; it posts as a reply to that message.',
+      description: 'Acknowledge an original request once, when replies instructions require.',
       schema: z.object({
         trigger_id: z.string(),
         text: AcknowledgementSchema.describe(`At most ${IM_WORDS} words; Markdown is supported.`),
@@ -54,7 +71,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
     }),
     tool({
       name: 'orchestrator_thread_unrelated',
-      description: 'Stop following an attached thread that is not about this ticket, as the work section says; its own threads cannot be dropped.',
+      description: 'Drop an unrelated attached thread; cannot drop this ticket’s own threads.',
       schema: z.object({
         thread: z.string().min(1).describe('The thread key, which trigger/<id> of one of its messages shows as thread, such as feishu:<chat>:<root> or github:<number>.'),
         reason: z.string().trim().min(1).max(300).describe('One sentence on why the thread is not about this ticket.'),
@@ -63,7 +80,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
     }),
     tool({
       name: 'orchestrator_thread_follow',
-      description: 'Follow a related thread, such as an Issue or another PR, for context only.',
+      description: 'Follow a related thread for context only.',
       schema: z.object({
         thread: z.string().describe('Thread key, such as github:<number>.'),
         reason: z.string().trim().min(1).max(300).describe('How it relates, in one sentence.'),
@@ -87,16 +104,18 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
     }),
     tool({
       name: 'orchestrator_report',
-      description: 'Report progress, ready, blocked, failed or dropped, as the work and handoff sections say.',
+      description: shared ? 'Submit the complete report in summary. Word: document={format:"docx",filename:"report.docx"}. Host generates OOXML and delivers original-thread attachment. Do not use artifact_file or substitute TXT; no new Feishu scopes needed.'
+        : 'Report progress, ready, blocked, failed or dropped. Word: use document with the complete Markdown summary.',
       schema: z.object({
         state: z.enum(['progress', 'ready', 'blocked', 'failed', 'dropped']),
         summary: z.string().min(1),
-        artifact_version: z.number().int().nonnegative().optional().describe('Read orchestrator_artifact; required after human edits.'),
-        artifact_file: z.string().min(1).max(240).optional().describe('Ready: relative .md/.txt report, saved for delivery.'),
-        human_action: z.string().trim().min(1).max(1000).nullish().describe('Question for a person (also in progress); omit to keep pending, null to clear.'),
-        question_for_trigger_id: z.string().optional().describe('With human_action: ask where this human message was written.'),
-        pr_number: z.number().int().positive().nullish().describe('Only when GitHub is configured: the source PR, or an agent-owned PR from this ticket branch (DSH_SUPERAGENT_NAME). Omit for office work.'),
-        reply_to_trigger_id: z.string().optional().describe('Human question answered; not for ordinary progress.'),
+        artifact_version: z.number().int().nonnegative().optional().describe('Expected saved version; required after human edits.'),
+        document: DocumentOutputSchema.optional().describe('Ready: Word from Markdown summary.'),
+        artifact_file: z.string().min(1).max(240).optional().describe(shared ? 'Unavailable in shared mode. Submit complete text through summary; the host creates the attachment.' : 'Relative .md/.txt report in the ticket workspace.'),
+        human_action: z.string().trim().min(1).max(1000).nullish().describe('Question for a person; omit to keep, null to clear.'),
+        question_for_trigger_id: z.string().optional().describe('Message to receive human_action.'),
+        pr_number: z.number().int().positive().nullish().describe('GitHub only: source PR or this ticket branch’s PR; omit for office work.'),
+        reply_to_trigger_id: z.string().optional().describe('Human question answered; omit for progress.'),
       }).strict(),
       execute: async (args, signal) => {
         const current = host.store.tickets.get(ticketId)
@@ -104,12 +123,22 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
         if (args.pr_number != null && !host.github.deployment.github) throw new Error('The GitHub Source has no working agent CLI')
         const pull = args.pr_number != null ? await readPull(host.github, args.pr_number, signal) : undefined
         if (host.controls?.held(ticketId)) throw new Error('Task paused or under human control')
+        if (args.state === 'ready') await host.meetings?.assertReady(ticketId)
         if (codex && args.artifact_file) throw new Error('Codex 日报请通过 summary 提交完整正文，不读取工作区文件。')
+        if (shared && args.artifact_file) throw new Error('共享模式请通过 summary 提交完整正文；系统生成附件，不读取工作区文件。')
         if (args.artifact_file && args.state !== 'ready') throw new Error('Only a ready report can publish artifact_file')
+        if (args.document && (args.state !== 'ready' || args.artifact_file)) throw new Error('Word 仅用于 ready 定稿，不能同时指定 artifact_file。')
+        if (args.state === 'ready' && host.artifacts?.requestedFormat(current) === 'docx' && !args.document) throw new Error('本任务明确要求 Word，请传 document={format:"docx",filename:"report.docx"}，summary 为完整正文。不能用 TXT 替代；不需要另开飞书权限。')
         const file = args.artifact_file ? host.artifacts?.readReportFile(current, args.artifact_file) : undefined
         if (args.artifact_file && !file) throw new Error('Report file publication is unavailable')
+        if (args.state === 'ready' || args.state === 'progress') host.artifacts?.checkReport(current, args.artifact_version)
+        const requirement = host.artifacts?.requirement(current)
+        const document = args.document ? await generateDocument(current.title, args.summary, args.document, signal) : undefined
+        signal.throwIfAborted()
         // Claim the PR, record the report, and queue the relay atomically so a rejected PR claim or invalid report leaves no partial state, and a recorded report always reaches the main Session.
         return host.store.atomic(() => {
+          const latest = host.store.tickets.get(ticketId)
+          if (!latest || !liveTicket(latest) || host.controls?.held(ticketId) || host.artifacts?.requirement(latest) !== requirement) throw new Error('生成期间任务要求或控制权已变化，请读取最新任务后重试。')
           const refused = pull && claimPull(host.github, ticketId, pull)
           if (refused) throw new Error(refused)
           if (args.state === 'ready' || args.state === 'progress') host.artifacts?.checkReport(current, args.artifact_version)
@@ -117,17 +146,22 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
             ...(args.question_for_trigger_id ? { askedBy: args.question_for_trigger_id } : {}),
             ...(args.reply_to_trigger_id ? { answers: args.reply_to_trigger_id } : {}) }
           const updated = host.engine.report(ticketId, report)
+          let delivery: ReturnType<ResultDelivery['enqueue']>
           if (args.state === 'ready' || args.state === 'progress') {
-            const artifact = host.artifacts?.report(updated, file?.body ?? args.summary, args.artifact_version, file?.filename ?? (codex ? `codex-daily-${String((host.resources.store.triggers.get(ticket.origin.triggerId)?.meta.date) ?? 'report')}.md` : undefined))
-            if (artifact && args.state === 'ready') host.resultDelivery?.enqueue(updated, artifact)
+            const artifact = host.artifacts?.report(updated, file?.body ?? args.summary, args.artifact_version, file?.filename ?? (codex ? `codex-daily-${String((host.resources.store.triggers.get(ticket.origin.triggerId)?.meta.date) ?? 'report')}.md` : undefined), document)
+            if (artifact && args.state === 'ready') delivery = host.resultDelivery?.enqueue(updated, artifact)
           }
           const relay = reportRelay(updated, report)
           if (relay) host.sessions.relay(relay.id, relay.text)
           const notification = relay ? 'orchestrator' : 'internal_only'
-          return { reported: true, notification, ...(updated.attention ? { attention: updated.attention } : {}) }
+          return { reported: true, notification, ...(updated.attention ? { attention: updated.attention } : {}),
+            ...(shared && delivery ? { delivery: { mode: delivery.mode, status: delivery.status, version: delivery.version, ...(document ? { file: document.metadata } : {}) } } : {}) }
         })
       },
     }),
   ]
-  return codex ? tools.filter(tool => ['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report'].includes(tool.name)) : tools
+  return codex ? tools.filter(tool => ['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report'].includes(tool.name))
+    : shared ? tools.filter(tool => ['orchestrator_read', 'orchestrator_artifact', 'orchestrator_report', 'orchestrator_ack', 'orchestrator_trigger_handback',
+      ...(host.meetings?.forTicket(ticketId) ? ['orchestrator_transcribe_recording'] : [])].includes(tool.name))
+      : tools.filter(tool => tool.name !== 'orchestrator_transcribe_recording')
 }

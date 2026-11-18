@@ -1,6 +1,6 @@
 /** The domain Engine: the single entry point of the core, and the role interfaces its callers receive. */
 import { UserError } from './errors.ts'
-import { isoTime, liveTicket } from './model.ts'
+import { isoTime, liveTicket, pendingEvaluationDue } from './model.ts'
 import type { ChannelRef, Decision, PolicyEffect, ThreadRef, Ticket, Trigger } from './model.ts'
 import type { Candidate, Repositories } from './ports.ts'
 import type { EngineOptions } from './part.ts'
@@ -45,7 +45,7 @@ export class Engine {
    * and queue it for Eval on its primary Thread unless a ticket's worker decides it (see `followupOwners`).
    * Triggers that arrive while an Eval of that Thread runs wait together for the next one.
    */
-  receive(trigger: Trigger): ReceiveResult { return this.repo.atomic(() => this.intake.receive(trigger)) }
+  receive(trigger: Trigger, batchMs = 0): ReceiveResult { return this.repo.atomic(() => this.intake.receive(trigger, batchMs)) }
   /**
    * A Source's request to make an open ticket follow one of its Threads, such as a pull request's, `own` when the ticket
    * opened it: the ticket subscribes to it, and a ready report ends it only once `followsDone` holds (see `Tickets.followsDone`).
@@ -80,8 +80,25 @@ export class Engine {
       if (!liveTicket(ticket) && ticket.undelivered.length) this.repo.atomic(() => { this.tickets.wake(ticket.id) })
     }
     for (const thread of this.repo.threads.active()) {
-      if (thread.pending.length && !thread.evaluating) this.repo.atomic(() => { this.evals.start(thread.key, policy) })
+      if (!thread.evaluating && pendingEvaluationDue(thread, this.options.now?.() ?? new Date().toISOString())) this.repo.atomic(() => { this.evals.start(thread.key, policy) })
     }
+  }
+  /** Bounded clock command for an async repository host; reads only this Thread's loaded aggregate. */
+  evaluateThread(key: string): void {
+    this.repo.atomic(() => {
+      const policy = this.options.policy(), thread = this.repo.threads.get(key)
+      if (!thread) return
+      if (thread.evaluating) this.evals.due(thread, policy)
+      const current = this.repo.threads.get(key)!
+      if (!policy.paused && !current.evaluating && pendingEvaluationDue(current, this.options.now?.() ?? new Date().toISOString())) this.evals.start(key, policy)
+    })
+  }
+  /** Wake one ended ticket with waiting inputs, after the async host checked its current control fence. */
+  wakeTicket(ticketId: string): void {
+    this.repo.atomic(() => {
+      const ticket = this.repo.tickets.get(ticketId)
+      if (!this.options.policy().paused && ticket && !liveTicket(ticket) && ticket.undelivered.length) this.tickets.wake(ticketId)
+    })
   }
 
   // The main Session
@@ -164,6 +181,7 @@ export class Engine {
    * @throws UserError when the ticket is unknown, has ended, or is not retryable.
    */
   retryTicket(ticketId: string): Ticket { return this.repo.atomic(() => this.tickets.retry(ticketId)) }
+  rerunTicket(ticketId: string, note: string): Ticket { return this.repo.atomic(() => this.tickets.rerun(ticketId, note)) }
 
   // The Executor
 

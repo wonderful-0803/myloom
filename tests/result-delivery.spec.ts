@@ -57,6 +57,21 @@ it('defaults to a real report file in the original thread, fixes its bytes, reco
   expect(h.runtime.artifacts.get(ticket.id, MEMBER)?.body).toBe(artifact.body)
 })
 
+it('keeps a Word artifact downloadable but blocks the body-only mail channel instead of silently substituting plain text', async () => {
+  smtp()
+  const binding=await h.runtime.feishuAssistant.mail.binding(MEMBER)
+  await h.api('PUT','loom/delivery',{mode:'mail',revision:0,mailboxKey:binding.key})
+  const {ticket,sessionId}=await h.acceptedTicket(feishu('wordmail','生成word会议纪要'))
+  await h.runTool(sessionId,'orchestrator_report',{state:'ready',summary:'# 会议纪要\n\n已完成整理。',document:{format:'docx'}})
+  await flush()
+  expect(h.runtime.resultDelivery.list(MEMBER,ticket.id)).toEqual([expect.objectContaining({status:'blocked',mode:'mail',detail:expect.stringContaining('未发送正文代替 Word')})])
+  const artifact=h.runtime.artifacts.get(ticket.id,MEMBER)!
+  expect(artifact.file?.format).toBe('docx')
+  expect(h.runtime.artifacts.fileBytes(artifact,MEMBER).subarray(0,2).toString()).toBe('PK')
+  expect(files()).toHaveLength(0)
+  expect(vi.mocked(Commands.prototype.run).mock.calls.some(([,args])=>args[0]==='send')).toBe(false)
+})
+
 it('saves all three preferences with revision checks, preserves default opt-out and does not replay completed tasks', async () => {
   const { ticket } = await ready(); await flush()
   expect(await h.api('PUT', 'loom/delivery', { mode: 'none', revision: 0, to: 'intruder@163.com' })).toMatchObject({ status: 400 })

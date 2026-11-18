@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { key, latestReport, type Ticket } from '../core/index.ts'
 import { settingsPolicy } from '../policy.ts'
 import { KV } from '../kv.ts'
+import { groupWorkspace } from '../group-mode.ts'
 import type { Commands } from '../infra/commands.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
 import { feishuSettings } from '../sources/feishu.ts'
@@ -23,10 +24,12 @@ export interface ResultReceipt {
   status: 'queued' | 'sending' | 'sent' | 'submitted' | 'unknown' | 'cancelled' | 'blocked' | 'local'
   at: string; updatedAt: string; destination: string; messageId?: string; mailToken?: string
   taskUpdatedAt: string; controlRevision: number; authority: string; binding?: MailBinding; detail?: string
+  fileHash?: string; filename?: string
 }
 interface Host {
   store: Store; sources: SourceRegistry; controls: TaskControls; artifacts: Artifacts; effects: Effects
   commands: Commands; mail: FeishuMail; stateDir: string; paused(): boolean
+  validateSource?(ticketId: string): Promise<void>
 }
 const modes = z.enum(['feishu', 'none', 'mail', 'default'])
 /** Persists versioned preferences and at-most-once publication receipts; never scans files or wakes a Worker. */
@@ -40,6 +43,7 @@ export class ResultDelivery {
       && feishuSettings(sources).ownerOnly && allowed.length === 1 && allowed[0]?.id === owner
   }
   setting(owner: string, ticketId?: string): DeliverySetting {
+    if (groupWorkspace(this.host.store.settings())) return { owner, mode: 'feishu', revision: 0 }
     const ticket = ticketId ? this.host.store.tickets.get(ticketId) : undefined
     const origin = ticket && this.host.store.triggers.get(ticket.origin.triggerId)
     const initial = origin?.source === 'codex-daily' && ['none', 'feishu', 'default'].includes(String(origin.meta.delivery)) ? origin.meta.delivery as 'none' | 'feishu' | 'default' : 'default'
@@ -47,7 +51,8 @@ export class ResultDelivery {
   }
   private effective(owner: string, ticketId: string): { mode: DeliveryMode; binding?: MailBinding; authority: string } {
     const global = this.setting(owner), task = this.setting(owner, ticketId), value = task.mode === 'default' ? global : task
-    return { mode: value.mode as DeliveryMode, binding: value.binding, authority: contentHash(JSON.stringify(task.mode === 'default' ? [global, task] : [task])) }
+    const group = groupWorkspace(this.host.store.settings())
+    return { mode: value.mode as DeliveryMode, binding: value.binding, authority: contentHash(JSON.stringify(group ? [group, ticketId] : task.mode === 'default' ? [global, task] : [task])) }
   }
   async save(owner: string, body: unknown, ticketId?: string): Promise<DeliverySetting> {
     const input = z.object({ mode: modes, revision: z.number().int().nonnegative(), mailboxKey: z.string().optional() }).strict().parse(body)
@@ -74,7 +79,7 @@ export class ResultDelivery {
   list(owner: string, ticketId?: string): ResultReceipt[] {
     return this.host.store.keys(KV.results.receipt).flatMap(name => {
       const value = this.host.store.get(name)!, ticket = this.host.store.tickets.get(value.ticketId)
-      return value.owner === owner && (!ticketId || value.ticketId === ticketId) && ticket && this.host.artifacts.canReadContext(ticket, owner) ? [value] : []
+      return (value.owner === owner || !!groupWorkspace(this.host.store.settings())) && (!ticketId || value.ticketId === ticketId) && ticket && this.host.artifacts.canReadContext(ticket, owner) ? [value] : []
     }).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 100)
   }
   /** Holds queued publication on pause or takeover; completed/unknown external writes are never claimed undone. */
@@ -86,7 +91,7 @@ export class ResultDelivery {
   }
   enqueue(ticket: Ticket, artifact: ArtifactVersion): ResultReceipt | undefined {
     const owner = ticket.mandate.actor.id, { store, artifacts, controls } = this.host
-    if (!this.personal(owner)) return
+    if (!this.personal(owner) && !groupWorkspace(store.settings())) return
     if (ticket.mandate.actor.source === 'codex-daily' && !settingsPolicy(store.settings(), this.host.sources).revalidate(ticket.mandate)) throw new Error('Codex 日报委托已撤销或变化。')
     if (ticket.ended?.outcome !== 'completed' || latestReport(ticket)?.state !== 'ready' || artifact.kind !== 'task'
       || artifact.subject !== ticket.id || artifacts.get(ticket.id, owner)?.version !== artifact.version
@@ -94,6 +99,7 @@ export class ResultDelivery {
     const control = controls.view(ticket.id)
     if (control.mode !== 'agent' || control.operations.some(op => op.name !== 'orchestrator_report')) throw new Error('任务暂停、接管或有在途操作，暂不投递。')
     const value = this.effective(owner, ticket.id), destination = this.destination(ticket, artifact)
+    const unsupportedMailFile = value.mode === 'mail' && !!artifact.file
     const target = value.mode === 'mail' ? value.binding?.key : value.mode === 'feishu' ? destination.key : 'local'
     if (value.mode === 'mail' && !value.binding) throw new Error('请先核对并保存本人邮箱。')
     const id = key('report-delivery', ticket.id, String(artifact.version), value.mode, target ?? '')
@@ -101,8 +107,10 @@ export class ResultDelivery {
       const previous = store.get(KV.results.receipt(id))
       if (previous && previous.status !== 'cancelled') return previous
       const at = new Date().toISOString(), receipt: ResultReceipt = { id, owner, ticketId: ticket.id, version: artifact.version, hash: artifact.hash,
-        mode: value.mode, status: value.mode === 'none' ? 'local' : 'queued', at, updatedAt: at, destination: value.mode === 'mail' ? value.binding!.address : value.mode === 'none' ? '仅保存在 Loom' : destination.label,
-        taskUpdatedAt: ticket.updatedAt, controlRevision: control.revision, authority: value.authority, ...value.binding ? { binding: value.binding } : {} }
+        mode: value.mode, status: unsupportedMailFile ? 'blocked' : value.mode === 'none' ? 'local' : 'queued', at, updatedAt: at, destination: value.mode === 'mail' ? value.binding!.address : value.mode === 'none' ? '仅保存在 Loom' : destination.label,
+        ...(unsupportedMailFile ? { detail: '当前邮箱通道仅支持报告正文，尚未支持 Word 附件；文件已保存，可从 Loom 下载或选择飞书交付。未发送正文代替 Word。' } : {}),
+        taskUpdatedAt: ticket.updatedAt, controlRevision: control.revision, authority: value.authority, ...value.binding ? { binding: value.binding } : {},
+        ...artifact.file ? { fileHash: artifact.file.sha256, filename: artifact.file.filename } : {} }
       store.set(KV.results.receipt(id), receipt)
       if (receipt.status === 'queued') this.host.effects.enqueue('result', id, {})
       return receipt
@@ -119,10 +127,11 @@ export class ResultDelivery {
   private valid(receipt: ResultReceipt): boolean {
     const { store, artifacts, controls } = this.host, ticket = store.tickets.get(receipt.ticketId)
     const artifact = artifacts.get(receipt.ticketId, receipt.owner), control = controls.view(receipt.ticketId)
-    return this.personal(receipt.owner) && !!ticket
+    return (this.personal(receipt.owner) || !!groupWorkspace(store.settings()) && receipt.mode === 'feishu') && !!ticket
       && (ticket.mandate.actor.source !== 'codex-daily' || settingsPolicy(store.settings(), this.host.sources).revalidate(ticket.mandate)) && ticket.ended?.outcome === 'completed' && latestReport(ticket)?.state === 'ready'
       && ticket.updatedAt === receipt.taskUpdatedAt && artifacts.canReadContext(ticket, receipt.owner)
       && artifact?.version === receipt.version && artifact.hash === receipt.hash && artifact.requirement === artifacts.requirement(ticket)
+      && artifact.file?.sha256 === receipt.fileHash
       && control.mode === 'agent' && control.revision === receipt.controlRevision && this.effective(receipt.owner, ticket.id).authority === receipt.authority
   }
   private persist(value: ResultReceipt): void { this.host.store.set(KV.results.receipt(value.id), { ...value, updatedAt: new Date().toISOString() }) }
@@ -134,6 +143,10 @@ export class ResultDelivery {
     if (receipt.status === 'sending') { this.persist({ ...receipt, status: 'unknown', detail: '进程中断，投递结果待核查；不会自动重发。' }); return }
     if (receipt.status !== 'queued') return
     if (!this.valid(receipt)) { this.cancel(receipt, '任务、来源、产物版本或交付授权已变化。'); return }
+    if (controls.view(receipt.ticketId).operations.length) throw new Later('Waiting for managed task operations to settle')
+    try { await this.host.validateSource?.(receipt.ticketId) }
+    catch { this.cancel(receipt, '原录音不可读取或授权已变化，未发送纪要。'); return }
+    if (!this.valid(receipt)) { this.cancel(receipt, '来源核验期间授权已变化。'); return }
     if (controls.view(receipt.ticketId).operations.length) throw new Later('Waiting for managed task operations to settle')
     const fixed = receipt, ticket = store.tickets.get(receipt.ticketId)!, artifact = artifacts.get(receipt.ticketId, receipt.owner, receipt.version)!
     if (receipt.mode === 'mail') {
@@ -154,7 +167,8 @@ export class ResultDelivery {
     const destination = this.destination(ticket, artifact), directory = join(this.host.stateDir, 'result-exports', id)
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     const filename = artifact.filename ?? 'result.txt'
-    writeFileSync(join(directory, filename), artifact.body, { mode: 0o600 })
+    try { writeFileSync(join(directory, filename), artifacts.fileBytes(artifact, receipt.owner), { mode: 0o600 }) }
+    catch { this.persist({ ...receipt, status: 'blocked', detail: '文件产物完整性或来源核验失败，未发送替代 TXT；请检查 Loom 生成组件。' }); return }
     const args = destination.reply ? ['im', '+messages-reply', '--message-id', destination.reply] : ['im', '+messages-send', '--user-id', receipt.owner]
     if (destination.threaded) args.push('--reply-in-thread')
     args.push('--file', './' + filename, '--idempotency-key', key('report-file', id))

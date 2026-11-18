@@ -8,6 +8,8 @@ export function storeReads(db: DatabaseSync) {
   return {
   /** Newest first by arrival (`rowid`) order rather than trigger timestamp. */
   recentTriggers: (offset = 0, limit = 50): Trigger[] => db.prepare('SELECT value FROM trigger ORDER BY rowid DESC LIMIT ? OFFSET ?').all(limit, offset).map(row => JSON.parse(String(row.value)) as Trigger),
+  groupContext: (space: string, offset = 0, limit = 50): Trigger[] =>
+    values("SELECT value FROM trigger WHERE json_extract(value, '$.meta.loomSpace') = ? ORDER BY at DESC, id DESC LIMIT ? OFFSET ?", space, limit, offset),
   /** Per-source trigger counts since `since`, plus the latest arrival timestamp across all time. */
   triggerStats: (since: string): Record<string, { received: number; filtered: number; lastAt: string }> => {
     const result: Record<string, { received: number; filtered: number; lastAt: string }> = {}

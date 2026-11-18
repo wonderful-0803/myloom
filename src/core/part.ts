@@ -54,9 +54,13 @@ export abstract class EnginePart {
     }
   }
   /** Queue a Trigger on its primary Thread for the next Eval, unless it waits there already or an Eval holds it. */
-  protected queueForEval(trigger: Trigger): boolean {
+  protected queueForEval(trigger: Trigger, batchMs?: number): boolean {
     const primary = this.thread(trigger.threads[0]!)
     if (primary.pending.includes(trigger.id) || primary.evaluating?.triggerIds.includes(trigger.id)) return false
+    if (batchMs === 0 || !primary.pending.length) {
+      if (batchMs) primary.evaluateAfter = new Date(Date.parse(this.now()) + batchMs).toISOString()
+      else delete primary.evaluateAfter
+    }
     primary.pending.push(trigger.id)
     this.repo.threads.save(primary)
     return true

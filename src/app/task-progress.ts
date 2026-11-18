@@ -15,6 +15,7 @@ const names:Record<string,string> = { read:'读取资料',write:'保存文件',e
 const reportNames:Record<string,string>={ready:'报告已完成',progress:'阶段进展',blocked:'等待处理',failed:'执行失败',waiting:'等待后续输入',dropped:'本轮已结束'}
 /** Labels only known actions and task-local filenames, never commands, URLs, tokens or arbitrary tool outputs. */
 function label(name: string, args: Record<string, any>, ticket: Ticket): string {
+  if (name === 'orchestrator_report' && args.document?.format === 'docx') return '生成 Word 并登记报告'
   let value = Object.hasOwn(names,name) ? names[name]! : '执行受管工具'
   if (name === 'bash' || name === 'pwsh') {
     const command = typeof args.command === 'string' ? args.command : ''
@@ -44,10 +45,12 @@ export class TaskProgress {
     try { events = await cached.events }
     catch { unavailable = '原生执行明细暂不可读；任务状态和控制记录仍可查看。' }
     const ticket = this.host.store.tickets.get(id)!
-    return this.project(ticket, events, unavailable)
+    return projectTaskProgress(ticket, events, this.host.controls.view(ticket.id), unavailable)
   }
-  private project(ticket: Ticket, raw: readonly ProgressEvent[], unavailable?:string): LoomProgress {
-    const now = Date.now(), control = this.host.controls.view(ticket.id), timeline:LoomProgressEvent[] = []
+}
+/** Pure projection shared by the local and external-state product entrypoints. */
+export function projectTaskProgress(ticket: Ticket, raw: readonly ProgressEvent[], control: Pick<ReturnType<TaskControls['view']>, 'mode' | 'drained' | 'detail' | 'history' | 'operations'>, unavailable?:string): LoomProgress {
+    const now = Date.now(), timeline:LoomProgressEvent[] = []
     const source = raw.slice(-10_000).filter(e => Number.isSafeInteger(e.seq) && Number.isFinite(e.time) && e.time>0 && e.time<=now+30_000)
     const unique = [...new Map(source.map(e=>[e.seq,e])).values()].sort((a,b)=>a.seq-b.seq)
     const calls = new Map<string,{ event:ProgressEvent; row:LoomProgressEvent; report?:{title:string;detail:string;status:'done'|'failed'} }>(), starts = new Map<string,number>(), counted = new Set<string>()
@@ -109,4 +112,3 @@ export class TaskProgress {
       events:timeline.slice(0,160),unavailable,truncated:raw.length>10_000||timeline.length>160,
       control:{mode:control.mode,drained:control.drained,detail:control.detail,pending:control.operations.map(op=>({id:op.id,label:op.name.startsWith('mail:')?'邮件提交':op.name.startsWith('reply:')?'原线程交付':names[op.name.split(':').at(-1)!]??'受管操作',startedAt:op.startedAt,unknown:op.status==='unknown'}))}}
   }
-}

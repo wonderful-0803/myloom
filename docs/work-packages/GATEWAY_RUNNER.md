@@ -1,6 +1,8 @@
 # 工作包 C：工具网关与 Linux Runner
 
-状态：待实现。基于 [已实现的执行端口](README.md)，依赖 [A 的控制／账本／租约](LOOM_STATE.md) 和 [B 的 Session 恢复与代次](DSH_STATE.md)。首轮交付一个实际可验收的 Linux 只读设备环境，不默认开放任意远程 Shell。
+部署位置补充（2026-11-10）：网关服务部署于既有公司 AI 盒子；个人电脑上的 Runner 主动连接盒子。盒子也可以提供独立的受管执行环境，但不能把计算服务目录自动作为个人设备工作区。本包在 A、B 和现有执行接口复核之后推进，当前没有开放远程执行。见 [状态开发记录](STATE_STORAGE.md)。
+
+状态：C1 协议、C2 Linux 只读 Runner、C3 设备网关/TLS/配对和 `CompanyRemoteExecution` 已实现。2026-11-17 AI 盒子已完成 3443 部署，当前 Linux Runner 已通过真实 `ExecutionRouter → Gateway → TLS → Runner → fs.read` 验收；真实 Agent Worker 代理工具也有专项测试。首轮仍只开放已授权目录的 read/glob/grep，不开放远程 Shell、写文件或后台 job；依赖 [A 的控制／账本／租约](LOOM_STATE.md) 和 [B 的 Session 恢复与代次](DSH_STATE.md)。
 
 ## 部署位置与责任
 
@@ -25,7 +27,7 @@
 5. 当前 `settle` 的本机闭包还组合了子 Agent 与 job 等待。计算侧子 Agent 继续由 DSH drain／join，设备 job 状态由 Runner 回执提供；二者共同确认停止。
 6. `Sessions.ensure` 仍拒绝 Runner，`Artifacts.readReportFile` 同样拒绝远端路径。只有代理工具、计算 scratch workspace 和受控文件传输都验收后，才逐项放开，不能删除门禁就交付。
 
-建议新增 `src/execution/router.ts / gateway.ts / protocol.ts / runner/`，以及 Linux Runner 的独立 CLI 入口。插件和原生工具的分发点在 `src/app/sessions.ts`；生命周期在 `src/executor/dsh.ts`；服务器与 Runner 的本地适配器各自独立。以上路径均为拟建，非已实现代码。
+当前实现位置为 `src/execution/{port,protocol,router,gateway,tls}.ts`、`src/execution/runner/` 和 `scripts/runner-connect.mjs`。下一步是在 CompanyServer 的实际 profile 中配置证书、固定 Gateway identity key、启用私网监听，并由 A/B 事务提供真实 request permit；插件和原生工具的分发点仍在 `src/app/sessions.ts`，生命周期在 `src/executor/dsh.ts`。
 
 ## 工具与能力分类
 

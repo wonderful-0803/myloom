@@ -9,6 +9,7 @@ import type { Effects } from './effects.ts'
 import type { Artifacts } from './artifacts.ts'
 import { contentHash } from './artifacts.ts'
 import { resolveRoleModel } from './role-models.ts'
+import { groupWorkspace } from '../group-mode.ts'
 
 export interface QuietDraft {
   id: string; decisionId: string; owner: string; chatId: string; thread: string; sourceIds: string[]; fingerprint: string
@@ -38,7 +39,7 @@ export class QuietDrafts {
     const decision = this.host.store.decisions.get(record.decisionId)
     const matches = decision?.audit?.matches as { rule_id?: string }[] | undefined
     const requested = record.mode === 'requested'
-    return this.host.store.get(KV.drafts.record(record.id))?.status !== 'discarded' && config.draftsEnabled && (requested || config.draftChats.some(row => row.chatId === record.chatId)
+    return !groupWorkspace(settings) && this.host.store.get(KV.drafts.record(record.id))?.status !== 'discarded' && config.draftsEnabled && (requested || config.draftChats.some(row => row.chatId === record.chatId)
       && config.chats.some(row => row.chatId === record.chatId && row.listen === 'all') && settings.eval.mode === 'observe'
       && !!matches?.some(match => match.rule_id === 'office-summary' && settings.policy.rules.some(rule => rule.id === match.rule_id && rule.enabled)))
       && !settings.paused && record.configHash === this.configHash()

@@ -1,10 +1,10 @@
 # 工作包 A：Loom 状态外置
 
-状态：待实现。以 [共同接口与依赖](README.md) 为前提，本包负责 Loom 产品与编排状态，不负责 DSH 事件格式或端侧命令实现。
+状态：公司群试点范围的剩余代码及隔离回归已完成；尚未切换现行 AI 盒子或完成实际飞书 OAuth／模型联调。第三批新增产品服务、来源与原生适配器、BlobStore、群录音、离线迁移／回滚和操作入口，见 [分批实现](STATE_STORAGE.md) 与 [公司产品入口和迁移](COMPANY_PRODUCT.md)。原个人 Runtime 保留；B 的原生 Session provider 和 C 的网关不计作本包完成内容。
 
 ## 目标和交付边界
 
-把当前 `orchestrator.sqlite` 中的权威状态迁入可独立部署的 PostgreSQL，把文件字节迁入独立 BlobStore。个人模式保留 SQLite 适配器。计算进程不靠自身目录保存任务、控制权或发送回执；删除并重建计算容器后可以从外部状态恢复。
+把当前 `orchestrator.sqlite` 中的权威状态迁入可独立部署的 PostgreSQL，把文件字节迁入独立 BlobStore。个人模式保留 SQLite 适配器。公司试点仍使用此前的 AI 盒子：先将计算、PostgreSQL 与持久文件目录部署在同机不同进程，不要求更换云主机。目标是计算进程不靠自身目录保存任务、控制权或发送回执；删除并重建计算容器后可以从外部状态恢复。
 
 先支持一个企业实例和现有空间边界，不把存储外置当作通用多租户产品已经完成。数据库凭据由服务端持有，飞书页面和桌面工作台只访问产品 API。
 
@@ -20,7 +20,7 @@
 | `src/app/artifacts.ts` | 报告／人工版本／来源关系与字节分离。当前 DOCX 字节也存于 KV 的 base64，不能只搬目录 |
 | `src/app/runtime.ts`、`passes.ts`、`src/app/tools/`、`src/app/http.ts`、`src/sources/` | 仓储注入、异步命令与读模型、提交后唤醒；数据库故障时停止新执行 |
 
-建议新增目录 `src/state/`：`ports.ts`、`sqlite.ts`、`postgres.ts`、`jobs.ts`、`leases.ts`、`blob-store.ts`、`migrations/`。这些是本包拟建文件；当前并未实现。通过 `rg '\.db\.|new Store|\.atomic\(' src` 找齐直连点，不能只修改 Runtime 的构造行。
+新增目录为 `src/state/`。异步端口、双 SQL、作业／租约、BlobStore 与公司入口迁移已存在；下面保留整体验收规范。通过 `rg '\.db\.|new Store|\.atomic\(' src` 找齐直连点，不能只修改 Runtime 的构造行。
 
 ## 事务端口和调用方式
 
@@ -80,7 +80,7 @@ interface StateTransaction {
 
 ## 文件存储
 
-BlobStore 拟提供 `put / head / open / delete`，manifest 保存在关系库，服务端存放加密凭据。先支持独立持久目录后端，企业再接对象存储，二者执行同一契约测试。临时导出文件只作缓存。
+BlobStore 已提供 `put / head / read / delete / list`，manifest 保存在关系库，服务端存放加密凭据。先支持独立持久目录后端，企业再接对象存储，二者执行同一契约测试。临时导出文件只作缓存。
 
 发布顺序：生成到临时对象 → 校验真实类型、大小、sha256 → 事务登记不可变产物版本及引用 → 才允许交付。未登记孤儿对象延迟 GC；登记失败不显示“已生成”。相同哈希可复用物理字节，但 ACL 在引用上，不能跨空间通过哈希探知文件。下载每次重新鉴权，首版使用服务端代理；撤权后缓存及旧链接同样受控。
 
@@ -110,4 +110,4 @@ BlobStore 拟提供 `put / head / open / delete`，manifest 保存在关系库�
 | 文件上传后数据库失败 | 页面无可用产物，孤儿可回收；已发布对象重启后可读 |
 | 两个身份换 URL／下载／游标 | 无越权正文、摘要、文件或事件 |
 
-现有回归至少包括 `pnpm typecheck`、`pnpm test`、`pnpm build`。本包新增 `tests/state-contract/`（SQLite＋PostgreSQL 双适配器）、数据库进程故障集成测试、migration dry-run 和 blob 故障测试；新测试路径是交付要求，当前不存在。提交时提供 migration 清单、KV 映射、恢复脚本、样例脱敏验收记录以及 B／C 可直接调用的事务、控制、租约和执行账本接口。
+现有回归至少包括 `pnpm typecheck`、`pnpm test`、`pnpm build`。本包新增 `tests/state-contract/`（SQLite＋PostgreSQL 双适配器）；首批测试已存在，覆盖仓储、接单、控制、Outbox、断库及进程强杀。第三批已补 migration dry-run、blob 故障与跨适配器回滚测试；正式盒子迁移仍待操作授权和实际验收。提交时提供 migration 清单、KV 映射、恢复脚本、样例脱敏验收记录以及 B／C 可直接调用的事务、控制、租约和执行账本接口。

@@ -1,5 +1,6 @@
 /** Owner-authenticated Feishu queries and task controls; never evaluated by a model or fanned out as task input. */
 import { settingsPolicy } from '../policy.ts'
+import { groupWorkspace, inGroup } from '../group-mode.ts'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
@@ -76,7 +77,7 @@ export class FeishuAssistant {
     this.mail = new FeishuMail({ ...host, cli: () => String(host.sources.instance('feishu')?.config.mailCli ?? ''),
       provider: () => host.sources.instance('feishu')?.config.mailProvider === '163' ? '163' : 'feishu',
       smtpCli: () => String(host.sources.instance('feishu')?.config.smtpCli ?? ''),
-      allowed: (owner, id) => { const ticket = host.store.tickets.get(id); return !!ticket && this.ownerTask(ticket, owner) && (ticket.mandate.actor.source !== 'codex-daily' || settingsPolicy(host.store.settings(), host.sources).revalidate(ticket.mandate)) } })
+      allowed: (owner, id) => { const ticket = host.store.tickets.get(id); return !groupWorkspace(host.store.settings()) && !!ticket && this.ownerTask(ticket, owner) && (ticket.mandate.actor.source !== 'codex-daily' || settingsPolicy(host.store.settings(), host.sources).revalidate(ticket.mandate)) } })
     host.effects.handle('assistant', (_payload, id) => this.deliver(id), { limit: () => host.configured() ? 1 : 0 })
   }
   /** Only the native bot event consumer calls this adapter; payload arguments never confer task authority. */
@@ -183,12 +184,14 @@ export class FeishuAssistant {
       && trigger.channel.source === 'feishu' && trigger.channel.address.chatId === trigger.meta.chatId
       && trigger.channel.address.messageId === trigger.meta.messageId
       && sources.scope(trigger).listened
-      && (sources.policyPart('feishu')?.allowed.some(person => person.id === trigger.actor.id) ?? false)
+      && (groupWorkspace(this.host.store.settings()) ? inGroup(trigger, groupWorkspace(this.host.store.settings())!)
+        : sources.policyPart('feishu')?.allowed.some(person => person.id === trigger.actor.id) ?? false)
   }
   private owned(ticket: Ticket, trigger: Trigger): boolean {
     return this.ownerTask(ticket, trigger.actor.id)
   }
   private ownerTask(ticket: Ticket, owner: string): boolean {
+    if (groupWorkspace(this.host.store.settings()) || ticket.mandate.basis.scope?.loomSpace) return this.host.artifacts.canReadContext(ticket, owner)
     const origin = this.host.store.triggers.get(ticket.origin.triggerId)
     if (ticket.mandate.actor.source === 'codex-daily') return this.host.artifacts.canReadContext(ticket, owner)
     return ticket.mandate.actor.source === 'feishu' && ticket.mandate.actor.id === owner
@@ -202,7 +205,7 @@ export class FeishuAssistant {
   }
   private tasks(trigger: Trigger): Ticket[] {
     return this.host.store.tickets.list().filter(ticket => this.owned(ticket, trigger)
-      && (trigger.meta.direct === true || this.inOriginThread(ticket, trigger)))
+      && (trigger.meta.direct === true || !!groupWorkspace(this.host.store.settings()) || this.inOriginThread(ticket, trigger)))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
   private select(trigger: Trigger, id?: string): Ticket | undefined {
@@ -294,6 +297,7 @@ export class FeishuAssistant {
   }
   private answer(trigger: Trigger, command: Command): Pick<AssistantRequest, 'text' | 'ticketId' | 'body' | 'subject' | 'editor' | 'artifactVersion' | 'focusTicketId'> {
     const { action, args } = command, direct = trigger.meta.direct === true
+    const shared = !!groupWorkspace(this.host.store.settings())
     const tasks = this.tasks(trigger)
     const bound = this.select(trigger)
     if (!direct && trigger.addressed !== 'mention' && !bound) return { text: '请在原任务线程使用指令，或 @ 机器人。' }
@@ -303,6 +307,8 @@ export class FeishuAssistant {
     if (args.length > maxArgs || ['邮箱', '帮助', '草稿箱'].includes(action) && args.length) return { text: '指令参数过多，本次未执行。每条消息只使用一条指令。' }
     if (['产物', '导出'].includes(action) && args.length === 2 && !/^v[1-9]\d*$/.test(args[1]!)) return { text: '版本格式为 v1、v2 等；本次未执行。' }
     if (action === '帮助') return { text: help }
+    if (shared && ['邮箱', '邮件', '确认邮件', '取消邮件', '邮件状态', '起草', '草稿箱', '草稿', '确认草稿', '忽略草稿', '导出草稿', '编辑草稿'].includes(action))
+      return { text: '群内共享模式在本群创建任务并交付报告；私人邮箱与个人草稿不接入共享群。' }
     if (['保存改稿', '确认草稿', '忽略草稿', '起草', '取消邮件'].includes(action)) {
       const age = Date.now() - Date.parse(trigger.at)
       if (!Number.isFinite(age) || age > 120_000 || age < -30_000) return { text: '操作消息已过期，请重新发送；历史消息不会改稿、起草或改变投递许可。' }
@@ -339,7 +345,7 @@ export class FeishuAssistant {
         ...action === '导出草稿' && artifact ? { body: this.artifactBody(artifact) } : {} }
     }
     if (action === '保存改稿') {
-      if (!direct) return { text: '请在机器人私聊中编辑产物。' }
+      if (!direct && !shared) return { text: '请在机器人私聊中编辑产物。' }
       const subject = args[0] ?? bound?.id ?? this.reference(trigger)?.subject
       const head = subject && this.host.artifacts.get(subject, trigger.actor.id)
       if (!head || !command.body) return { text: '请先查看具体产物，再直接发送“改稿为：”和完整正文；也可回复具体产物消息。' }
@@ -362,7 +368,7 @@ export class FeishuAssistant {
       return ticket ? { ticketId: ticket.id, text: '正在处理你的邮件请求。' } : { text: '未找到属于你的邮件预览或任务授权已撤销。' }
     }
     if (action === '任务' || action === '产物' && !args.length && !bound) {
-      if (!direct) return { text: '任务总览和产物列表请私聊机器人查看。' }
+      if (!direct && !shared) return { text: '任务总览和产物列表请私聊机器人查看。' }
       const page = action === '任务' && args[0] ? Number(args[0]) : 1
       if (!Number.isSafeInteger(page) || page < 1) return { text: '页码应为正整数，例如 /助手 任务 2' }
       const selected = tasks.slice((page - 1) * 5, page * 5)
@@ -375,9 +381,9 @@ export class FeishuAssistant {
     if (action === '状态') return { ticketId: ticket.id, text: this.controlText(ticket, direct) }
     if (action === '邮件') return { ticketId: ticket.id, text: '正在准备定稿邮件预览，尚未发送。' }
     if (['产物', '导出', '版本', '来源', '编辑'].includes(action)) {
-      if (!direct) return { text: '产物正文与文件仅通过机器人私聊取回，避免把个人内容带入群。' }
+      if (!direct && !shared) return { text: '产物正文与文件仅通过机器人私聊取回，避免把个人内容带入群。' }
       const report = latestReport(ticket), latest = this.host.artifacts.snapshot(ticket)
-      const artifact = viewVersion ? this.host.artifacts.get(ticket.id, trigger.actor.id, Number(viewVersion.slice(1))) : latest
+      const artifact = viewVersion ? this.host.artifacts.get(ticket.id, trigger.actor.id, Number(viewVersion.slice(1))) : latest && this.host.artifacts.get(ticket.id, trigger.actor.id)
       if (!report) return { ticketId: ticket.id, text: '此任务尚未保存报告或结果；查询不会启动 Worker。' }
       if (!artifact) return { text: '未找到该版本，或产物来源已不在当前授权范围内。' }
       const meta = `v${artifact.version} · ${artifact.author === 'human' ? '本人编辑' : '助手生成'} · ${artifact.hash.slice(0, 12)}`
@@ -459,8 +465,11 @@ export class FeishuAssistant {
     if (request.body) {
       directory = join(this.host.stateDir, 'assistant-exports', key('export', id))
       mkdirSync(directory, { recursive: true, mode: 0o700 })
-      writeFileSync(join(directory, 'result.txt'), request.body, { mode: 0o600 })
-      args.push('--file', './result.txt')
+      const artifact = request.artifactVersion && (request.subject || request.ticketId)
+        ? this.host.artifacts.get((request.subject || request.ticketId)!, trigger.actor.id, request.artifactVersion) : undefined
+      const filename = artifact?.file?.filename ?? 'result.txt'
+      writeFileSync(join(directory, filename), artifact?.file ? this.host.artifacts.fileBytes(artifact, trigger.actor.id) : request.body, { mode: 0o600 })
+      args.push('--file', './' + filename)
     } else if (this.host.sources.instance('feishu')?.config.cardsEnabled === true) {
       const rendered = this.card(request, trigger)
       request = { ...request, cardTokens: rendered.tokens }

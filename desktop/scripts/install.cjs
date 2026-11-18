@@ -21,8 +21,8 @@ fs.mkdirSync(path.dirname(application), { recursive: true })
 fs.writeFileSync(application, entry, { mode: 0o644 })
 const setupApplication = path.join(dataRoot, 'applications', 'luxi-loom-setup.desktop')
 const setupEntry = entry.replace('Name=Loom\n', 'Name=Loom · 独立助手\n')
-  .replace(`Exec=${desktopEscape(launch)}\n`, `Exec=${desktopEscape(launch)} --class=loom-setup --setup-experience\n`)
-  .replace('StartupWMClass=loom\n', 'StartupWMClass=loom-setup\n')
+  .replace(`Exec=${desktopEscape(launch)}\n`, `Exec=${desktopEscape(launch)} --setup-experience\n`)
+  .replace('StartupWMClass=loom\n', 'StartupWMClass=luxi-loom-setup\n')
 fs.writeFileSync(setupApplication, setupEntry, { mode: 0o644 })
 try { execFileSync('update-desktop-database', [path.dirname(application)], { timeout: 5000, stdio: 'ignore' }) } catch {}
 let desktop

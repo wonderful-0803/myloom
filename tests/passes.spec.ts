@@ -54,3 +54,21 @@ it('starts no timer once stopped, as a start-up that ends after a stop asks', as
     expect(h.engine.evaluateDue).not.toHaveBeenCalled()
   } finally { vi.useRealTimers() }
 })
+
+it('awaits asynchronous intake commits and clock passes, and stop drains them before returning', async () => {
+  let commit!: () => void, evaluated!: () => void, finish!: () => void
+  const committing = new Promise<void>(resolve => { commit = resolve })
+  const evaluating = new Promise<void>(resolve => { evaluated = resolve })
+  const finishing = new Promise<void>(resolve => { finish = resolve })
+  const health = new HealthBoard().claim('async-runtime')
+  const engine = { receive: async () => { await committing; return 'stored' as const }, evaluateDue: async () => { evaluated(); await finishing } }
+  const passes = new Passes({ engine, effects: { kick() {}, idle: async () => {} }, health, lifetime: new AbortController().signal, configured: () => true, closing: () => false })
+  let received = false, stopped = false
+  const receiving = passes.receive(trigger).then(() => { received = true })
+  await Promise.resolve(); expect(received).toBe(false)
+  commit(); await receiving; await evaluating
+  const stopping = passes.stop().then(() => { stopped = true })
+  await Promise.resolve(); expect(stopped).toBe(false)
+  finish(); await stopping; expect(stopped).toBe(true)
+  expect(() => passes.receive(trigger)).toThrow('stopping')
+})

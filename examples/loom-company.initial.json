@@ -1,0 +1,95 @@
+{
+  "installation": {
+    "id": "example-feishu",
+    "appId": "cli_example",
+    "botId": "ou_examplebot",
+    "tenantKey": "example-tenant-key",
+    "operator": "ou_operator",
+    "enabled": true,
+    "name": "Loom 示例机器人",
+    "since": "2026-11-11T00:00:00.000Z"
+  },
+  "settings": {
+    "paused": true,
+    "sources": {
+      "github": {
+        "enabled": false
+      },
+      "feishu": {
+        "enabled": true,
+        "config": {
+          "cli": "/opt/loom/bin/lark-bot",
+          "ownerOnly": true,
+          "directMessages": false,
+          "otherChats": "none",
+          "cardsEnabled": false,
+          "draftsEnabled": false,
+          "chats": [
+            {
+              "chatId": "oc_example",
+              "name": "示例群",
+              "listen": "all"
+            }
+          ]
+        }
+      }
+    },
+    "policy": {
+      "sources": {
+        "feishu": {
+          "allowed": [
+            {
+              "id": "ou_operator",
+              "name": "示例管理者"
+            }
+          ],
+          "workspace": {
+            "mode": "group",
+            "operator": "ou_operator",
+            "chatId": "oc_example",
+            "name": "示例群",
+            "masters": [
+              {
+                "id": "ou_operator",
+                "name": "示例管理者"
+              }
+            ],
+            "spaceId": "11111111-1111-4111-8111-111111111111",
+            "since": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      },
+      "rules": [
+        {
+          "id": "office-summary",
+          "name": "工作总结与纪要",
+          "enabled": true,
+          "instruction": "根据本群已授权的文字记录和指定时间范围整理工作总结或纪要，保留来源引用。讨论与提议不能当作已确认决定；录音须先在原线程获得明确确认并完成转写。只将定稿交付原线程，不联系新受众。"
+        },
+        {
+          "id": "office-data",
+          "name": "数据汇总",
+          "enabled": true,
+          "instruction": "仅在本群已提供数据、统计口径和范围明确时汇总。需要的计算或资料工具不可用时如实报告缺失能力，不能猜测数字或读取群外资料；不修改业务源数据。"
+        },
+        {
+          "id": "office-research",
+          "name": "资料查阅",
+          "enabled": true,
+          "instruction": "根据本群已授权且可读取的文字资料回答明确的问题，区分事实与分析并引用来源。缺少外部检索、云文档或附件连接器时报告缺失依赖，不凭记忆冒充已查阅，不扩大读取范围。"
+        }
+      ]
+    },
+    "eval": {
+      "mode": "observe",
+      "timeoutSeconds": 120
+    },
+    "executor": {
+      "maxWorkers": 2,
+      "model": null,
+      "directory": "",
+      "prepare": "",
+      "blockedCommands": []
+    }
+  }
+}

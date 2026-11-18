@@ -1,3 +1,4 @@
+import { requestId as newRequestId } from './request-id';
 import React, { useEffect, useRef, useState } from 'react';
 import type { LoomCodexSessions, LoomDelegation, LoomSnapshot } from '../../../../src/app/loom-types';
 import { api, enc, message, modeName, ruleName, when } from './api';
@@ -7,7 +8,7 @@ import { Empty, Panel, Pill, Sheet, Switch } from './ui';
 type Mode = LoomSnapshot['mode'];
 type Codex = NonNullable<LoomDelegation['codex']>;
 interface Form {
-  title: string; description?: string; codex?: Codex; codexConsent?: boolean; chatIds: string[]; keywords: string[];
+  title: string; description?: string; codex?: Codex; codexConsent?: boolean; meeting?: LoomDelegation['meeting']; meetingConsent?: boolean; chatIds: string[]; keywords: string[];
   enabled: boolean; mode: 'auto' | 'observe'; revision: number; requestId?: string;
 }
 const runStatus: Record<string, string> = {
@@ -29,7 +30,7 @@ function Automation() {
       {(['auto', 'observe', 'off'] as Mode[]).map(value =>
         <button type="button" role="radio" key={value} aria-checked={mode === value} disabled={locked} onClick={() => setPick(value === data.mode ? null : value)}>{modeName[value]}</button>)}
     </div>
-    <p className="lv-fine">{modeHint[mode]}</p>
+    <p className="lv-fine">{mode === 'observe' && data.workspace?.mode === 'group' ? '只记录候选需求，不自动接单；群内共享模式不生成个人草稿。' : modeHint[mode]}</p>
     {pick && <div className="lv-actions">
       <button type="button" className="lv-btn is-primary" disabled={locked} onClick={() => void run(async () => {
         const value = await api<{ message: string }>('/automation', 'PUT', { mode: pick, revision: data.automation.revision }); setPick(null); return value.message;
@@ -41,8 +42,11 @@ function Automation() {
       <Switch on={rule.enabled} label={(rule.enabled ? '停用' : '启用') + (ruleName[rule.id] ?? rule.name)} disabled={locked}
         onChange={() => void run(async () => (await api<{ message: string }>('/rules/' + enc(rule.id), 'PATCH', { enabled: !rule.enabled, revision: data.policyRevision })).message)} />
     </li>)}</ul>
-    <p className="lv-fine">只影响之后的新消息，不重放历史；已开始的任务请在任务里暂停或接管。最多 {data.automation.maxWorkers} 个任务同时执行。</p>
-    {data.paused && <p className="lv-note">后台处理已全局暂停，恢复后才会派发新任务。</p>}
+    <p className="lv-fine">只影响之后的新消息，不重放历史；已开始的任务请在任务里暂停或接管。{document.querySelector('meta[name="loom-multiple-groups"]') ? '各群共享执行容量，忙时任务会排队。' : <>最多 {data.automation.maxWorkers} 个任务同时执行。</>}</p>
+    {data.paused && <p className="lv-note">当前工作空间的后台处理已暂停，恢复后才会派发新任务。</p>}
+    {data.workspace?.scopeFixed && data.workspace.canManage && <button type="button" className="lv-btn" disabled={locked} onClick={() => void run(async () =>
+      (await api<{ message: string }>('/pause', 'PUT', { revision: data.policyRevision, paused: !data.paused })).message
+    )}>{data.paused ? '恢复后台处理' : '暂停后台处理'}</button>}
   </Panel>;
 }
 
@@ -95,17 +99,17 @@ function DelegationForm({ item, onClose }: { item?: LoomDelegation; onClose: () 
   const { data, locked, refresh, notify } = useWorkspace();
   const chats = data.connection.chats.filter(chat => chat.listen === 'all');
   const [form, setForm] = useState<Form>(() => ({
-    title: item?.title ?? '', description: item?.description ?? '', ...(item?.codex ? { codex: item.codex } : {}),
+    title: item?.title ?? '', description: item?.description ?? '', ...(item?.codex ? { codex: item.codex } : {}), ...(item?.meeting ? { meeting: item.meeting } : {}),
     chatIds: item?.chatIds ?? chats.slice(0, 1).map(chat => chat.chatId), keywords: item?.keywords ?? [],
-    enabled: item?.enabled ?? true, mode: item?.mode ?? 'auto', revision: data.policyRevision, ...(!item ? { requestId: crypto.randomUUID() } : {}),
+    enabled: item?.enabled ?? true, mode: item?.mode ?? 'auto', revision: data.policyRevision, ...(!item ? { requestId: newRequestId() } : {}),
   }));
   const [keywords, setKeywords] = useState(item?.keywords.join('，') ?? ''), [consent, setConsent] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const ready = form.title.trim() && (form.codex ? (form.codex.projects.length || form.codex.sessions.length) && consent : form.chatIds.length);
+  const ready = form.title.trim() && (form.codex ? (form.codex.projects.length || form.codex.sessions.length) && consent : form.chatIds.length && (!form.meeting || consent));
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); if (busy || !ready) return;
     setBusy(true); setError('');
-    const words = form.codex ? [] : [...new Set(keywords.split(/[,，、\n]/).map(word => word.trim()).filter(Boolean))];
-    const body = { ...form, title: form.title.trim(), description: form.description?.trim() || undefined, keywords: words, ...(form.codex ? { codexConsent: consent } : {}) };
+    const words = form.codex || form.meeting ? [] : [...new Set(keywords.split(/[,，、\n]/).map(word => word.trim()).filter(Boolean))];
+    const body = { ...form, title: form.title.trim(), description: form.description?.trim() || undefined, keywords: words, ...(form.codex ? { codexConsent: consent } : {}), ...(form.meeting ? { meetingConsent: consent } : {}) };
     try {
       await api('/delegations' + (item ? '/' + enc(item.id) : ''), item ? 'PUT' : 'POST', body);
       notify('委托已保存，之后匹配的新消息才会创建任务。');
@@ -113,19 +117,20 @@ function DelegationForm({ item, onClose }: { item?: LoomDelegation; onClose: () 
       onClose();
     } catch (value) { setError(message(value)); } finally { setBusy(false); }
   };
-  const setKind = (codex: boolean) => {
+  const setKind = (kind: 'feishu' | 'codex' | 'meeting') => {
     setConsent(false); setKeywords('');
-    const { codex: _old, ...rest } = form;
-    setForm(codex ? { ...rest, chatIds: [], keywords: [], codex: { projects: [], sessions: [], time: '18:00', timezone: 'Asia/Shanghai', delivery: 'none' } }
-      : { ...rest, chatIds: chats.slice(0, 1).map(chat => chat.chatId), keywords: [] });
+    const { codex: _old, meeting: _meeting, ...rest } = form;
+    setForm(kind === 'codex' ? { ...rest, chatIds: [], keywords: [], codex: { projects: [], sessions: [], time: '18:00', timezone: 'Asia/Shanghai', delivery: 'none' } }
+      : { ...rest, ...(kind === 'meeting' ? { meeting: { audio: 'confirm', provider: data.recordings?.provider ?? 'bailian' }, title: form.title || '群录音会议纪要', description: form.description || '主人上传录音时在原线程询问；确认后使用已配置的 ASR 转写并整理纪要，报告发回原线程。' } : {}), chatIds: chats.slice(0, 1).map(chat => chat.chatId), keywords: [] });
   };
   return <Sheet kind="dialog" title={item ? '编辑委托' : '新建委托'} onClose={() => { if (!busy) onClose(); }}
     actions={<><button type="button" className="lv-btn" disabled={busy} onClick={onClose}>取消</button><span className="lv-grow" />
       <button type="submit" form="lv-delegation" className="lv-btn is-primary" disabled={busy || locked || !ready}>{busy ? '保存中…' : '保存委托'}</button></>}>
     <form id="lv-delegation" className="lv-form" onSubmit={event => void submit(event)}>
       {!item && <div className="lv-seg is-wide" role="radiogroup" aria-label="委托类型">
-        <button type="button" role="radio" aria-checked={!form.codex} onClick={() => setKind(false)}>飞书群消息</button>
-        <button type="button" role="radio" aria-checked={!!form.codex} onClick={() => setKind(true)}>Codex 日报</button>
+        <button type="button" role="radio" aria-checked={!form.codex && !form.meeting} onClick={() => setKind('feishu')}>飞书群消息</button>
+        {data.workspace?.mode === 'group' && <button type="button" role="radio" aria-checked={!!form.meeting} onClick={() => setKind('meeting')}>录音会议纪要</button>}
+        {data.workspace?.mode !== 'group' && <button type="button" role="radio" aria-checked={!!form.codex} onClick={() => setKind('codex')}>Codex 日报</button>}
       </div>}
       <label className="lv-field"><span>名称</span><input className="lv-input" required maxLength={100} value={form.title} placeholder="例如：整理我的工作记录" onChange={event => setForm({ ...form, title: event.target.value })} /></label>
       <label className="lv-field"><span>目标与边界</span><textarea className="lv-input" rows={3} maxLength={2000} value={form.description ?? ''} placeholder="何时介入、用哪些资料、交付什么" onChange={event => setForm({ ...form, description: event.target.value })} /><small>留空时用名称作为目标，不会因此扩大工具或资料权限</small></label>
@@ -135,7 +140,14 @@ function DelegationForm({ item, onClose }: { item?: LoomDelegation; onClose: () 
             onChange={event => setForm({ ...form, chatIds: event.target.checked ? [...form.chatIds, chat.chatId] : form.chatIds.filter(id => id !== chat.chatId) })} /><span>{chat.name}</span></label>)
             : <p className="lv-fine">还没有接收全部消息的群，先在本机配置监听范围</p>}
         </fieldset>
-        <label className="lv-field"><span>触发关键词（选填）</span><input className="lv-input" maxLength={500} value={keywords} placeholder="工作记录，日报" onChange={event => setKeywords(event.target.value)} /><small>出现任意一个就进入评估；留空则按目标判断</small></label>
+        {!form.meeting && <label className="lv-field"><span>触发关键词（选填）</span><input className="lv-input" maxLength={500} value={keywords} placeholder="工作记录，日报" onChange={event => setKeywords(event.target.value)} /><small>出现任意一个就进入评估；留空则按目标判断</small></label>}
+        {form.meeting && <>
+          <p className="lv-note">仅录音：在原线程询问一次；主人回复“需要”才创建任务并转写。回复“取消”可终止；确认 24 小时有效。单份上限 80 MB / 2 小时，本群 24 小时最多 6 份。匿名说话人编号不代表真实身份。</p>
+          <p className="lv-fine">转写服务：{data.recordings?.provider === 'local' ? '本机 SenseVoice' : `百炼 ${data.recordings?.model || 'qwen-audio-3.1-asr-flash-filetrans'}`}</p>
+          {!data.recordings?.available && <p className="lv-note">本机转写组件尚未就绪，当前无法转写录音。</p>}
+          <label className="lv-check is-consent"><input type="checkbox" required checked={consent} onChange={event => setConsent(event.target.checked)} />
+            <span>授权在所选群询问主人，确认后{data.recordings?.provider === 'local' ? '本机转写' : '提交录音至百炼转写'}并交付原线程<small>本机临时音频处理后删除；{data.recordings?.provider !== 'local' ? '试点使用百炼私有临时上传空间，服务端临时文件按其 48 小时有效期管理。' : ''}转写文字保存在服务器，并交给当前模型整理纪要。暂停委托或撤销主人权限会阻止后续处理及交付；已提交的云端任务可能继续计算。</small></span></label>
+        </>}
       </>}
       <div className="lv-grid2">
         <label className="lv-field"><span>匹配后</span><select className="lv-input" value={form.mode} onChange={event => setForm({ ...form, mode: event.target.value as Form['mode'] })}>
@@ -148,7 +160,7 @@ function DelegationForm({ item, onClose }: { item?: LoomDelegation; onClose: () 
 }
 
 export function Delegations() {
-  const { data, locked, run, go } = useWorkspace();
+  const { data, locked, run, go, openTask } = useWorkspace();
   const [editing, setEditing] = useState<LoomDelegation | 'new' | null>(null);
   const toggle = (item: LoomDelegation) => run(async () => (await api<{ message: string }>('/delegations/' + enc(item.id), 'PATCH', { enabled: !item.enabled, revision: data.policyRevision })).message);
   const runNow = (item: LoomDelegation) => run(async () => (await api<{ message: string }>(`/delegations/${enc(item.id)}/run`, 'POST', { revision: data.policyRevision })).message);
@@ -160,12 +172,13 @@ export function Delegations() {
         return <article key={item.id} className={'lv-card' + (item.enabled ? '' : ' is-off')}>
           <header>
             <div><strong>{item.title}</strong>
-              <span>{!item.available ? '来源范围已变更，暂不可用' : !item.enabled ? '已暂停' : item.mode === 'auto' ? '匹配后自动执行' : '匹配后仅观察'}</span></div>
+              <span>{!item.available ? '来源范围已变更，暂不可用' : !item.enabled ? '已暂停' : item.mode === 'auto' ? item.meeting ? '录音先询问 · 确认后执行' : '匹配后自动执行' : '匹配后仅观察'}</span></div>
             <Switch on={item.enabled} label={(item.enabled ? '暂停' : '启用') + item.title} disabled={locked || (!item.available && !item.enabled)} onChange={() => void toggle(item)} />
           </header>
           {item.description && <p>{item.description}</p>}
           <div className="lv-tags">
             {item.codex ? <Pill>Codex 日报 · 每天 {item.codex.time}</Pill> : item.scopes.map(scope => <Pill key={scope.chatId}>{scope.name}</Pill>)}
+            {item.meeting && <Pill>录音会议纪要 · 原线程确认</Pill>}
             {!item.codex && item.keywords.length > 0 && <Pill>关键词 {item.keywords.join(' / ')}</Pill>}
           </div>
           {last && <p className="lv-fine">{last.date} · {runStatus[last.status] ?? last.status}{last.messages !== undefined ? ` · ${last.sessions} 个会话 / ${last.messages} 条消息` : ''}{last.detail ? ` · ${last.detail}` : ''}</p>}
@@ -181,7 +194,14 @@ export function Delegations() {
       })}</div> : <Empty title="把常做的事交代一次" action={<button type="button" className="lv-btn is-primary" disabled={locked} onClick={() => setEditing('new')}>新建委托</button>}>
         比如：看到我发的工作记录时，整理今日进展和下一步</Empty>}
     </Panel>
-    <Automation />
+    <div><Automation />{data.recordings && <Panel title="录音处理" note={data.recordings.available ? `${data.recordings.provider === 'bailian' ? '百炼' : '本机'}转写已配置；确认后纳入现有任务进展与控制` : '转写服务尚未配置'}>
+      {data.recordings.items.length ? data.recordings.items.map(record => <article className="lv-card" key={record.id}>
+        <strong>{record.title}</strong><p>{({checking:'核验录音来源',observed:'仅观察，未提问或转写',awaiting:'等待原线程确认',started:'已创建纪要任务',transcribing:'正在转写',ready:'转写完成',cancelled:'已取消',failed:'处理受阻'} as Record<string,string>)[record.status] ?? record.status}
+          {record.processedSeconds !== undefined ? ` · 已处理 ${Math.floor(record.processedSeconds)} 秒音频` : ''}</p>
+        {record.detail && <p className="lv-fine">{record.detail}</p>}
+        {record.ticketId && <button type="button" className="lv-link" onClick={() => openTask(record.ticketId!)}>查看任务进展</button>}
+      </article>) : <p className="lv-fine">尚无录音处理记录；仅处理委托启用后的新录音。</p>}
+    </Panel>}</div>
     {editing && <DelegationForm item={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
   </div>;
 }

@@ -72,6 +72,14 @@ function accepted(h: ReturnType<typeof harness>, id = '1', thread = 't1') {
 }
 
 describe('intake', () => {
+  it('holds a short burst until the intake window expires, then evaluates it once', () => {
+    const h = harness()
+    expect(h.engine.receive(trigger('1'), 2000)).toBe('stored')
+    h.engine.evaluateDue(); expect(h.requests).toHaveLength(0)
+    h.tick(2); h.engine.evaluateDue(); expect(h.requests).toHaveLength(1)
+    expect(h.requests[0]!.triggers.map(value => value.id)).toEqual(['1'])
+  })
+
   it('stores a trigger once and records source filtering', () => {
     const h = harness()
     expect(h.engine.receive(trigger('1'))).toBe('stored')

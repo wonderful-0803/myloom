@@ -1,0 +1,20 @@
+{
+  "tenantId": "example-company",
+  "spaceId": "11111111-1111-4111-8111-111111111111",
+  "installationId": "example-feishu",
+  "databaseUrlEnv": "LOOM_STATE_DATABASE_URL",
+  "appSecretEnv": "LOOM_FEISHU_APP_SECRET",
+  "blobRoot": "/var/lib/loom/blobs",
+  "scratch": "/var/cache/loom/compute",
+  "origin": "https://loom.example.com",
+  "port": 3085,
+  "cli": "/opt/loom/bin/lark-bot",
+  "gateway": {
+    "host": "192.168.0.158",
+    "port": 3443,
+    "tlsKey": "/var/lib/loom/gateway/tls/server.key",
+    "tlsCert": "/var/lib/loom/gateway/tls/server.crt",
+    "identityKey": "/var/lib/loom/gateway/device-gateway.key",
+    "requestCert": false
+  }
+}

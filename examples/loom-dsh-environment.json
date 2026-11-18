@@ -1,0 +1,10 @@
+{
+  "harnessVersion": "0.2.1-rc.3",
+  "profileRevision": "0000000000000000000000000000000000000000000000000000000000000000",
+  "presets": {
+    "replace-with-reviewed-preset-id": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "models": [
+    { "provider": "replace-with-provider-id", "model": "replace-with-model-id" }
+  ]
+}

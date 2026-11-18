@@ -156,6 +156,12 @@ textarea.lv-input, .lv-field textarea { resize: vertical; line-height: 1.6; }
 .lv-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .lv-inline .lv-input { width: auto; flex: 1; min-width: 160px; }
 .lv-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.lv-stack-sm { display: flex; flex-direction: column; gap: 6px; }
+.lv-workbench-setup { width: 100%; }
+.lv-workbench-setup.is-full { max-width: 760px; margin: 0 auto; }
+.lv-verification { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--lv-ok); border-radius: 12px; background: var(--lv-ok-wash); color: var(--lv-soft); font-size: 13px; }
+.lv-details { border-top: 1px solid var(--lv-line); padding-top: 12px; color: var(--lv-muted); font-size: 13px; }
+.lv-details summary { cursor: pointer; color: var(--lv-soft); font-weight: 650; }
 .lv-toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
 .lv-filter { font-size: 13px; color: var(--lv-muted); display: flex; gap: 10px; align-items: center; }
 

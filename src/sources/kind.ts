@@ -45,7 +45,7 @@ export type ChannelLinks = Partial<Pick<Deployment, 'repository' | 'feishu'>>
 /** Outbound messaging adapter for a source kind's threads. */
 export interface SourceChannel<C> {
   /** Whether a reply may still go to `address`; without it, every address may receive replies. */
-  allowed?(address: Record<string, string>, config: C): boolean
+  allowed?(address: Record<string, string>, config: C, policy?: Record<string, unknown>): boolean
   /**
    * Sends a message idempotently by ID; returns `'gone'` when the target conversation no longer accepts replies.
    * @throws when delivery failed but may succeed on a later retry.
@@ -97,9 +97,9 @@ export interface SourceKind<C extends Record<string, unknown> = Record<string, u
   /** Optional background features need not affect the Source lifecycle while disabled. */
   activeHealth?(config: C): string[]
   /** Listening rule for a trigger (or recorded Mandate basis) of this kind; kinds without `scope` listen to everything they produce and observe none of it. */
-  scope?(input: { meta: Record<string, unknown> }, config: C): ScopeResult
+  scope?(input: { meta: Record<string, unknown>; actor?: Trigger['actor'] }, config: C, policy?: Record<string, unknown>): ScopeResult
   /** Optional intake guard, applied before subscription fan-out as well as new-task admission. */
-  actorAllowed?(actor: Trigger['actor'], config: C, allowed: readonly { id: string }[]): boolean
+  actorAllowed?(actor: Trigger['actor'], config: C, allowed: readonly { id: string }[], policy?: Record<string, unknown>): boolean
   /** Outbound reply adapter; kinds without `channel` produce no replies or channel checks. */
   channel?: SourceChannel<C>
   /** Bounded context reader for assessments; assessments of a kind without `threadContext` read none. */

@@ -46,6 +46,8 @@ const TEXT = {
   'health.assistant': ['飞书任务查询与控制回复', 'Feishu task queries and control replies'],
   'health.draft': ['受控静默起草', 'Controlled quiet drafting'],
   'health.codex-daily': ['Codex 日报读取', 'Codex daily report intake'],
+  'health.meeting-discover': ['录音来源核验', 'Recording source verification'],
+  'health.meeting-message': ['录音确认消息', 'Recording confirmation messages'],
   'health.result': ['报告产物投递', 'Report artifact delivery'],
   'health.cards': ['飞书卡片回调', 'Feishu card callbacks'],
   'health.worker': ['执行器事件处理', 'Executor event handling'],

@@ -1,0 +1,24 @@
+# REVIEW AND MAP IDS against the isolated target profile first. Never append to a running profile.
+# Keep all existing worker/router preset declarations. Keep unrelated domains on their existing routes.
+# Back up and stop sources/consumers/Agents/domains before replacing their storage.
+- id: session-persistence-jsonl # replace with the actual old provider row ID
+  disabled: true
+- insert:
+    - id: loom-native-state
+      name: dsh-superagent/dsh-state
+      config:
+        tenantId: replace-with-existing-tenant
+        spaceId: replace-with-existing-space
+        databaseUrlEnv: LOOM_STATE_DATABASE_URL
+    - id: loom-native-metadata
+      name: dsh-superagent/dsh-metadata
+      config:
+        contractFile: /etc/loom/dsh-environment.json
+        units: [workspace]
+- id: storage-domain # replace with the actual domain-facility row ID; MERGE other routes
+  config:
+    backend: json
+    routes:
+      workspace: loom-sql
+# Company private config must independently select nativeState: external.
+# No source credentials or actual production route changes are performed by this example.

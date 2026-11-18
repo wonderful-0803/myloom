@@ -16,6 +16,8 @@ import type { DelegationActivity } from './app/delegations.ts'
 import type { DeliverySetting, ResultReceipt } from './app/result-delivery.ts'
 import type { CodexDailyRun } from './app/codex-daily.ts'
 import type { CodexHistoryAccess } from './app/codex-history.ts'
+import type { MeetingRecording, MeetingMessage } from './app/meetings.ts'
+import type { WorkbenchBotConnectionRecord } from './state/workbench.ts'
 
 /** Key of a KV record whose value has type `V`; a plain string represents an untyped key. */
 export type Key<V> = string & { readonly __value?: V }
@@ -41,17 +43,22 @@ export const KV = {
     builtIn: family<string, [base: string]>('prompt-built-in:') },
   /** Runtime: the main Session's ID. */
   runtime: { masterId: record<string>('master-id') },
+  group: { reads: family<string[], [ticket: string]>('group-context-reads:') },
+  meetings: { record: family<MeetingRecording, [id: string]>('meeting-recording:'), message: family<MeetingMessage, [id: string]>('meeting-message:') },
   /** Task control leases and operator handover history. */
   controls: { task: family<TaskControlState, [ticket: string]>('task-control:') },
   /** Immutable artifact revisions and the current version number; never store credentials here. */
   artifacts: { head: family<number, [subject: string]>('artifact-head:'),
-    version: family<ArtifactVersion, [subject: string, version: number]>('artifact-version:') },
+    version: family<ArtifactVersion, [subject: string, version: number]>('artifact-version:'),
+    file: family<string, [sha256: string]>('artifact-file:') },
   results: { setting: family<DeliverySetting, [owner: string, subject: string]>('result-setting:'),
     receipt: family<ResultReceipt, [id: string]>('result-receipt:') },
   /** Explicit local Codex read access, bound to this owner and one Shanghai calendar day. No transcripts or credentials. */
   codexHistory: { access: family<CodexHistoryAccess, [owner: string]>('codex-history-access:') },
   codexDaily: { run: family<CodexDailyRun, [id: string]>('codex-daily-run:') },
   cards: { grant: family<CardGrant, [token: string]>('feishu-card-grant:') },
+  /** Company execution gateway: pairing challenges and registered device directory. */
+  gateway: { pairing: family<unknown, [id: string]>('gateway-pairing:'), device: family<unknown, [id: string]>('gateway-device:') },
   drafts: { record: family<QuietDraft, [id: string]>('quiet-draft:') },
   delegations: { activity: family<DelegationActivity, [id: string]>('delegation-activity:') },
   /** Sessions: prompt revisions each Session has worked under, ordered oldest first; the last entry (`.at(-1)`) is its active revision. */
@@ -61,6 +68,8 @@ export const KV = {
     prompts: record<number | null>('prompt-notification'), settings: record<number | null>('settings-notification') },
   /** Per-Source resolved display names mapping a named ID (such as a Feishu chat ID) to its display name. */
   sources: { labels: family<Record<string, string>, [source: string]>('source-labels:') },
+  /** Feishu Workbench onboarding state. Secrets are kept in a private file, never in this KV record. */
+  workbench: { bot: record<WorkbenchBotConnectionRecord | undefined>('workbench-bot-connection') },
   /**
    * GitHub Source: notification cursor and pending retries; per-Issue/PR read cursor shared by notification and polled reads;
    * per-stream cursor, start times by kind, and ETag; default-branch CI state; and per-PR CI fingerprint and revision (`revision`

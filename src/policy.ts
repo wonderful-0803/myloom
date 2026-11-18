@@ -3,8 +3,10 @@
  * Who may originate work is configured per Source in that Source's own identities; the Policy never maps a person across Sources.
  */
 import { CodexDailySchema, codexScopeKey } from './codex-delegation.ts'
+import { MeetingDelegationSchema } from './meeting-delegation.ts'
 import { LIMITS } from './limits.ts'
 import { z } from 'zod'
+import { groupWorkspace, groupMaster } from './group-mode.ts'
 import { ADMISSION_DEFAULTS, type Admission, type AdmissionCell, type AdmissionRow } from './admission.ts'
 import { key, type AssessmentOutcome, type Mandate, type Policy, type PolicyEffect, type SourceScope, type Strength, type Thread, type Ticket,
   type Trigger, type ActorRef, type GateResult } from './core/index.ts'
@@ -71,12 +73,14 @@ const DEFAULT_RULES = [
 ]
 export const StandingDelegationSchema = z.object({
   owner: z.string().regex(/^ou_[a-zA-Z0-9]+$/),
+  groupSpace: z.uuid().optional(),
   chatIds: z.array(z.string().regex(/^oc_[a-zA-Z0-9]+$/)).max(3).refine(ids => new Set(ids).size === ids.length, 'Duplicate chat IDs'),
   keywords: z.array(z.string().trim().min(1).max(40)).max(12), mode: z.enum(['observe', 'auto']),
   createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), since: z.iso.datetime(),
   codex: CodexDailySchema.optional(),
+  meeting: MeetingDelegationSchema.optional(),
   requestId: z.uuid(), initialHash: z.string().regex(/^[a-f0-9]{32}$/),
-}).strict().refine(value => value.codex ? !value.chatIds.length && !value.keywords.length : value.chatIds.length > 0, '委托来源范围无效')
+}).strict().refine(value => value.codex ? !value.meeting && !value.chatIds.length && !value.keywords.length : value.chatIds.length > 0, '委托来源范围无效')
 export type StandingDelegation = z.infer<typeof StandingDelegationSchema>
 /** An assessment rule; optional standing delegation metadata narrows its owner, source, freshness and automation. */
 export const RuleSchema = z.object({ id: RuleIdSchema, name: z.string().trim().min(1).max(LIMITS.ruleName), enabled: z.boolean(),
@@ -85,12 +89,13 @@ export type Rule = z.infer<typeof RuleSchema>
 /** A scoped standing instruction never admits another sender, a private chat, historical events or a different source. */
 export function delegationMatches(rule: Rule, triggers: readonly Trigger[]): boolean {
   const delegation = rule.delegation
+  if (delegation?.meeting && !triggers.every(trigger => typeof trigger.meta.recordingId === 'string')) return false
   if (delegation?.codex) return !!triggers.length && triggers.every(trigger => !trigger.human && trigger.source === 'codex-daily'
     && trigger.actor.source === 'codex-daily' && trigger.actor.id === delegation.owner && trigger.id === trigger.meta.runId
     && trigger.meta.delegationId === rule.id && trigger.meta.owner === delegation.owner
     && trigger.meta.scopeKey === codexScopeKey(delegation.codex!) && trigger.meta.snapshotKey === key('codex-daily-snapshot', trigger.text))
   return !!delegation && !!triggers.length && triggers.every(trigger => trigger.human && trigger.source === 'feishu'
-    && trigger.actor.source === 'feishu' && trigger.actor.id === delegation.owner && trigger.meta.direct !== true
+    && trigger.actor.source === 'feishu' && (delegation.groupSpace ? trigger.meta.loomSpace === delegation.groupSpace : !trigger.meta.loomSpace && trigger.actor.id === delegation.owner) && trigger.meta.direct !== true
     && delegation.chatIds.includes(String(trigger.meta.chatId)) && Date.parse(trigger.at) >= Date.parse(delegation.since)
     && (!delegation.keywords.length || delegation.keywords.some(word => trigger.text.toLocaleLowerCase().includes(word.toLocaleLowerCase()))))
 }
@@ -144,6 +149,8 @@ export function policyVersion(settings: Settings): string {
   return key(POLICY_REVISION, JSON.stringify({ rules: settings.policy.rules, mode: settings.eval.mode, sources: settings.policy.sources }))
 }
 export function allowedSender(settings: Settings, actor: ActorRef): z.infer<typeof AllowedSchema> | undefined {
+  const group = groupWorkspace(settings)
+  if (actor.source === 'feishu' && group) return group.masters.find(person => person.id === actor.id)
   return settings.policy.sources[actor.source]?.allowed.find(entry => sameName(entry.id, actor.id))
 }
 /** Look up `actor` in the Source's `bots` policy list (validated by the Source's kind), whose messages are admitted as inferred candidates at most. */
@@ -254,7 +261,7 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
       // Revalidation rules follow docs/002 (Eval path; Resume revalidates).
       const { basis } = mandate
       const { source } = basis
-      const current = source && basis.scope ? listened(sources, source, basis.scope) : undefined
+      const current = source && basis.scope ? sources.scope({ source, meta: basis.scope, actor: mandate.actor }) : undefined
       if (current && !current.listened) return false
       if (source === 'codex-daily') return mandate.strength === 'inferred' && mandate.actor.source === source && basis.rules?.length === 1
         && !!current?.listened && current.observed && settings.policy.rules.some(rule => rule.enabled && rule.id === basis.rules?.[0]
@@ -262,7 +269,8 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
           && basis.scope?.scopeKey === codexScopeKey(rule.delegation.codex))
       const automated = (rules: string[] | undefined) => !rules?.length ? mode === 'auto' : rules.every(id => settings.policy.rules.some(rule => rule.enabled && rule.id === id
         && (rule.delegation ? rule.delegation.mode === 'auto' && !!allowedSender(settings, mandate.actor) && mandate.actor.source === 'feishu'
-          && mandate.actor.id === rule.delegation.owner && current?.listened && current.observed && basis.scope?.direct !== true
+          && (rule.delegation.groupSpace ? basis.scope?.loomSpace === rule.delegation.groupSpace && !!groupWorkspace(settings)
+            && groupMaster(groupWorkspace(settings)!, mandate.actor.id) : !basis.scope?.loomSpace && mandate.actor.id === rule.delegation.owner) && current?.listened && current.observed && basis.scope?.direct !== true
           && rule.delegation.chatIds.includes(String(basis.scope?.chatId)) : mode === 'auto')))
       // Explicit follow-ups remain valid; inferred follow-ups require automatic, enabled matched rules.
       if (basis.via === 'followup') return mandate.strength === 'explicit' || automated(basis.rules)

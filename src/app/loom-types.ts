@@ -2,8 +2,10 @@
 export interface LoomArtifact {
   subject: string; kind: 'task' | 'draft'; title: string; version: number; body: string; hash: string
   author: 'agent' | 'human'; at: string; editedVia?: 'loom'
+  editedBy?: string
   sources: { triggerId: string; hash: string }[]
   filename?: string
+  file?: import('../document-format.ts').ArtifactFile
 }
 export interface LoomTask {
   id: string; title: string; description: string; status: 'open' | 'ended' | 'blocked'; outcome?: string
@@ -19,6 +21,7 @@ export interface LoomMail {
 export interface LoomDelegation {
   id: string; title: string; description: string; enabled: boolean; mode: 'observe' | 'auto'; chatIds: string[]; keywords: string[]
   codex?: { projects: string[]; sessions: string[]; time: string; timezone: 'Asia/Shanghai'; delivery: 'none' | 'feishu' | 'default' }
+  meeting?: { audio: 'confirm'; provider?: 'bailian' | 'local' }
   runs?: { id: string; date: string; status: string; at: string; updatedAt: string; ticketId?: string; detail?: string; sessions?: number; messages?: number; warnings?: string[] }[]
   createdAt: string; updatedAt: string; available: boolean; scopes: { chatId: string; name: string }[]; taskIds: string[]
 }
@@ -33,6 +36,11 @@ export interface LoomProgress {
   control: { mode: LoomTask['control']['mode']; drained: boolean; detail?: string; pending: { id: string; label: string; startedAt: string; unknown: boolean }[] }
 }
 export interface LoomSnapshot {
+  /** Authenticated Feishu identity, safe to render in the browser. */
+  identity?: { uid: string; tenantKey: string }
+  workspace?: { mode: 'personal' | 'group'; operator: string; revision: number;
+    scopeFixed?: boolean; canManage?: boolean
+    group?: { chatId: string; name: string; masters: { id: string; name?: string }[] } }
   at: string; paused: boolean; mode: 'off' | 'observe' | 'auto'; model: string
   automation: { revision: number; maxWorkers: number; timeoutSeconds: number }
   delivery: LoomDeliverySetting
@@ -41,8 +49,9 @@ export interface LoomSnapshot {
     chats: { chatId: string; name: string; listen: string }[]; health: { id: string; state: string }[] }
   tasks: LoomTask[]; artifacts: LoomArtifact[]
   drafts: { id: string; title: string; status: string; at: string; confirmedVersion?: number }[]
-  events: { id: string; text: string; at: string; chat: string; direct: boolean; action?: string; decision?: string; observed: boolean; system?: boolean; taskIds?: string[]; processing?: 'queued' | 'evaluating' }[]
+  events: { id: string; text: string; at: string; chat: string; direct: boolean; actor?: string; contextOnly?: boolean; action?: string; decision?: string; observed: boolean; system?: boolean; taskIds?: string[]; processing?: 'queued' | 'evaluating'; inputKind?: 'attachment' | 'thread-reply'; batched?: boolean }[]
   policyRevision: number; delegations: LoomDelegation[]
+  recordings?: { available: boolean; provider: 'bailian' | 'local'; model: string; items: { id: string; title: string; status: string; at: string; updatedAt: string; ticketId?: string; duration?: number; processedSeconds?: number; detail?: string; transcriptReady: boolean }[] }
   rules: { id: string; name: string; enabled: boolean; text: string }[]
   deliveries: { id: string; action: string; status: string; at: string }[]
 }

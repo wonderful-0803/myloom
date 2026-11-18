@@ -1,6 +1,10 @@
 # 工作包 B：DSH 状态外置
 
-状态：待实现。依赖 [A 的事务／租约接口](LOOM_STATE.md)，通过 [共同执行端口](README.md) 对接 C。Loom 状态外置不自动外置 DSH Session；两者必须分别实现和验收。
+部署位置补充（2026-11-10）：计算服务和 PostgreSQL 首期均位于既有 AI 盒子，各自独立进程与持久目录；不要求更换云服务器。本包基于 A 已实现的异步公司入口继续开发，实际盒子迁移另行验收；A 仓储租约不等于 DSH 原生 Session 已外置。实现进展见 [状态开发记录](STATE_STORAGE.md)。
+
+状态：**B1/B3/B4/B5 与本轮 B6 的限定代码、实际 rc.3/ARM 隔离验收已落实；正式实例切换和真实飞书上线验收仍未完成，不标记整个 B 包已上线。** B6 补齐 Linux 退出证据及已持久前缀恢复、原生 file/image 归档与备份、完整角色的工具装配边界、公司配置生成/有序启动，并在既有 AI 盒子验证真实历史的隔离迁移与空库恢复。详情、实测范围及上线步骤见 [B6 记录](DSH_STATE_B6.md)。B1/B3/B4/B5 下文保留各阶段历史状态；其中“附件/崩溃待补”已由 B6 在限定范围内推进，通用目录/插件/跨宿主恢复不在本轮完成承诺中。当前正式 provider 未切换；C 的网关/Runner 尚未开始。
+
+2026-11-12 后续：用户授权后已在盒子切换并验证实际 SQL/native 状态、私有工作台登录和重启；修复私有配置的子 preset 依赖路径后，真实无 @ 新群任务、Word v1 原线程交付及实际下载核对通过，见 [部署记录](../SERVER_DEPLOYMENT.md)。此后 current 已指向新版；OAuth 登录、新版录音和执行中控制复验分别保留。C1 协议/模拟路由已开始，真实 Runner 未启用。前文/各阶段文中的“未切换”按历史记录阅读。
 
 ## 目标与当前接缝
 
@@ -17,9 +21,9 @@
 | DSH `@deepseek-ai/dsh-session-persistence` | 可替换 `SessionPersistence` 服务及 `SessionHandle`，应复用而不是另写一套聊天日志 |
 | DSH `@deepseek-ai/dsh-storage`、`dsh-storage-domain` | workspace、标题、模型／preset 等元数据需要逐个核对实际存储 owner，不能只迁事件文件 |
 
-当前安装类型是 `0.2.1-alpha.2`，公司部署文档记载运行工具链为 `0.2.1-rc.3`。先选定并锁住目标运行版本，记录其 provider、事件和元数据契约；在对应实际 Harness 上验证，不靠本仓库类型检查推断另一个版本兼容，不顺便自动升级公司实例。
+开发类型是 `0.2.1-alpha.2`，公司运行工具链为 `0.2.1-rc.3`。B1 已将运行契约固定到 rc.3／Session format 4，记录五份公开持久化类型的摘要，并使用实际 rc.3 的 Cordis／SessionStore／持久化运行库验证；没有升级开发依赖或公司实例。B5 开始验证真实 AgentLoop 和受限办公 profile 的跨进程接续；完整生产 profile、第三方插件与盒子切换仍需独立验收。
 
-建议新增独立插件目录 `packages/dsh-postgres/`，包括 SessionPersistence、元数据 backend、迁移和契约测试。插件在 Harness 启动时替换相关存储服务／挂载；不能让每个业务 Runtime 各注册一个竞争的 SessionPersistence。路径是拟建结构，本轮尚无此插件。
+B1 将独立插件落实为本包的 `dsh-superagent/dsh-state` 导出及 `src/dsh-state/` 模块，复用同一构建与 A 的事务／备份设施。原先拟议的 `packages/dsh-postgres/` 不再作为必须的新包路径；元数据 backend 和迁移仍待补。插件在 Harness 启动时显式替换存储服务，拒绝另一个 SessionPersistence 已挂载时启动；不能让每个业务 Runtime 各注册一个竞争的 provider。
 
 ## SessionPersistence 的具体实现
 
@@ -37,6 +41,8 @@ flush(): Promise<void>
 ```
 
 建议表：
+
+B1 实际使用 A 的通用记录表，以 `native-session`／`native-event` 两个独立 family 保存以下 header／事件内容，使用同一 SQL 租约。每事件独立行、create-only 写入、计数 CAS 和 epoch 校验均在同一事务完成，继承现有 tenant/space、关系索引和离线归档；不把整个日志塞成单个 JSON 对象。下表保留逻辑分解，非已创建的新物理表名称。未来若换专用物理表，须显式迁移，不改变原生契约。
 
 | 表 | 内容和约束 |
 | --- | --- |
@@ -93,11 +99,13 @@ DSH 必须运行的子 Agent 属于计算层，继续持有父任务的控制／
 
 ## 分步落地与验收
 
-1. **B1：版本与契约试验。**选定真实 Harness 版本，写最小持久化插件，验证创建、写入、flush、关闭、只读和 fork；列出元数据挂载清单。
-2. **B2：事件后端。**PostgreSQL provider、实时路由、句柄写链、格式／连续性校验、错误映射；测两个进程读写。
-3. **B3：所有权与恢复。**接 A 的 lease 与请求账本、C 的 epoch 校验；故障下旧 writer 不再推进。
-4. **B4：元数据与导入。**迁移 workspace／session 元数据；新计算目录重新构建。离线导入旧事件，保留 ID、原 seq、header、fork 前缀和来源，不迁移模型凭据。
-5. **B5：真实 Harness 集成。**两次启动使用不同空计算目录／进程，通过同一任务继续改稿、控制和交付，保留可复核记录。
+1. **B1：版本与契约试验（已实现并隔离验证）。**rc.3 固定契约、可运行 SQL provider、创建／写入／flush／关闭／只读／fork 和元数据挂载清单见 [B1 记录](DSH_STATE_B1.md)。
+2. **B2：事件后端（核心已有，整体连接待补）。**PostgreSQL provider、实时路由、句柄写链、格式／连续性校验、错误映射与两进程读写已随 B1 验证；生产 profile、更大日志规模及宿主故障收敛仍要结合 B3/B5 验收。
+3. **B3：所有权与恢复（首批连接已实现）。**接 A 的同一 lease、固定输入账本、发布前守卫和实际停止回执，见 [B3 记录](DSH_STATE_B3.md)。缺少物理停止证明的崩溃任务保持 hold；C 的远程执行回执及完整故障恢复待补。
+4. **B4：元数据与导入（首批已实现）。**SQL KV/workspace、环境契约、格式4文本历史的只读导出/dry-run/可续传导入及回滚见 [B4](DSH_STATE_B4.md)。保留 ID/seq/header/fork；附件、目录和真实旧部署迁移仍待单独补齐，不复制模型凭据。
+5. **B5：真实 Harness 集成（首批已实现）。**不同空计算目录／进程恢复同一任务、接管与人工版本、模型选择、持久产物和交付；受控模型与真实模型验证分别记录于 [B5](DSH_STATE_B5.md)，实际盒子及完整连接器验收未完成。
+
+6. **B6：收尾实现与 AI 盒子隔离验收。**真实角色、退出证据、原生附件、迁移/备份/恢复及部署入口见 [B6](DSH_STATE_B6.md)。正式切换、企业 OAuth 与真实飞书重启交付单独验收，不以测试替代。
 
 | 验收故障 | 必须结果 |
 | --- | --- |
@@ -114,3 +122,15 @@ DSH 必须运行的子 Agent 属于计算层，继续持有父任务的控制／
 本包新增 provider 契约、两进程争抢、故障注入及真实 Harness 启停测试；保留 `tests/runtime-concurrency.spec.ts`、`tests/task-control.spec.ts`、`tests/task-progress.spec.ts` 和输入投递相关回归。交付插件配置样例、固定版本记录、schema migration、dry-run 导入器、备份／恢复步骤及测试日志。
 
 切换前暂停并 flush，备份旧状态，禁止新旧 provider 同时写同一会话。回滚必须含切换后的增量与 lease 代次；不能把旧文件副本重新设为最新状态。实际公司切换、部署和数据迁移是独立操作，不包含在编写本包代码的默认授权中。
+
+## 与 A 包公司入口衔接
+
+2026-11-11 的 `src/company.ts`／`src/state/native.ts` 支持两条显式路径：默认 configured 保留原生 SessionController/现行 provider；external 使用 SQL provider 的同库权威与受管 AgentRegistry 生命周期。B3 沿用同一公司 Runtime，不再启动第二套调度；现行部署未切换。
+
+- 输入以持久作业 `kind/key/sequence` 形成稳定 requestId；`AgentDelivery` 的实际 message ID 由 `messageId(requestId)` 生成。`grant/native-input/<hash>` 保存内容哈希和投递阶段；SQL 新协议额外保存固定 payload/basis，原生 flush 后才确认消费。仅新协议未消费记录可按原 ID 补投；已消费但历史缺失或旧协议有歧义时拒绝盲重发。schema 11 旧输入还使用原调用方的 key，迁移须核对，不能假设二者一致。
+- `grant/worker-binding/<ticket>/<assignment>` 保存当前 Session、owner、epoch 和主人，领域回调与公司产物发布同时核验。external 模式原生 provider 借用同一 lease；`native-task-owner/<ticket>` 跨 Assignment 核验上轮停止证明。configured 模式仍不能用 A 的 SQL 租约锁住旧文件 provider。
+- `grant/native-quiescent/<session>/<epoch>` 是实际 idle、后台作业停止且 flush 后的回执，包含 owner／epoch。跨计算进程的控制消费者先核对它；租约过期或本进程没有 Agent 均不能确认停止。强杀后缺回执要由 B 的恢复协议处理，不能创建一张新租约冒充旧进程已停止。
+- `progress` 仅存经过裁剪的动作、时间和用量，供 Loom 查询；不能当作原生完整 Session 日志。B 继续负责完整事件、元数据、checkpoint 及空白计算进程恢复，并在恢复后的任何推理／工具前安装当前授权与工具守卫。
+- 当前公司群原生会话先禁用继承工具，再沿用既有受管权限预设；只注册当前任务的群文字、版本报告和已确认录音工具。原生恢复不能绕开这个次序。
+
+B3 已同时运行 `tests/state-contract/service.spec.ts`、`native-stop.spec.ts`、`tests/dsh-state/company.spec.ts` 与原生 provider 契约，并增加实际 rc.3 idle Agent 生命周期冒烟；服务夹具不代表真实 DSH 元数据和完整模型任务的空白恢复已经通过。
